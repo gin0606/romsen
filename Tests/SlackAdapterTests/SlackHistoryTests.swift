@@ -1,4 +1,4 @@
-import AXSnapshot
+import AXTree
 import Testing
 
 @testable import SlackAdapter

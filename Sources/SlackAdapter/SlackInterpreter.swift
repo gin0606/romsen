@@ -1,4 +1,4 @@
-import AXSnapshot
+import AXTree
 import Foundation
 
 public struct SlackScreen: Equatable, Sendable {

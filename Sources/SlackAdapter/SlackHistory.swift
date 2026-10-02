@@ -1,4 +1,4 @@
-import AXSnapshot
+import AXTree
 
 /// Reads messages beyond the ones on screen. Slack only renders the rows near the viewport, so
 /// this scrolls the outermost rendered message into view, lets Slack render the rows past it,

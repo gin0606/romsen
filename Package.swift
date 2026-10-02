@@ -8,8 +8,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
-        .target(name: "AXSnapshot"),
-        .target(name: "SlackAdapter", dependencies: ["AXSnapshot"]),
+        .target(name: "AXTree"),
+        .target(name: "AXSnapshot", dependencies: ["AXTree"]),
+        .target(name: "SlackAdapter", dependencies: ["AXTree"]),
         .executableTarget(
             name: "romsen",
             dependencies: [
@@ -18,6 +19,6 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
-        .testTarget(name: "SlackAdapterTests", dependencies: ["SlackAdapter"]),
+        .testTarget(name: "SlackAdapterTests", dependencies: ["SlackAdapter", "AXTree"]),
     ]
 )
