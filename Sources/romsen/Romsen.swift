@@ -61,11 +61,6 @@ struct Slack: ParsableCommand {
     }
 
     func run() throws {
-        var target: SlackLink?
-        if let link {
-            guard let parsed = SlackLink(link) else { throw fail("not a Slack message link: \(link)") }
-            target = parsed
-        }
         let bundleID = SlackInterpreter.bundleID
         let driver = SlackHistory.Driver(
             snapshot: { try Reader.snapshotWindows(bundleID: bundleID) },
@@ -74,63 +69,28 @@ struct Slack: ParsableCommand {
             press: { Reader.press(bundleID: bundleID, domID: $0, descendantClass: $1) })
 
         do {
+            let options = try SlackRead.Options(link: link, last: last, find: find, context: context, history: history, thread: thread)
             let current = try driver.snapshot()
             if raw {
                 print(current.map { $0.outline() }.joined(separator: "\n"))
                 return
             }
 
-            var request = SlackHistory.Request()
-            request.olderPages = history
-            request.last = last
-            request.containing = find
-            if let target {
-                // Checked before scrolling, so a link to another conversation never moves the window.
-                if let open = SlackInterpreter.openChannelID(current), open != target.channelID {
-                    throw fail(
-                        "the link points to conversation \(target.channelID), but Slack is showing \(open). "
-                            + "Open that conversation in Slack and run this again.")
-                }
-                if let root = target.threadTimestamp ?? (thread ? target.timestamp : nil) {
-                    // A long thread that is already open does not render its first message, so it
-                    // cannot be recognised here. Search it anyway and let the lookup below decide.
-                    guard try SlackHistory.openThread(root: root, driver: driver)
-                        || SlackHistory.hasList(.thread, in: try driver.snapshot())
-                    else {
-                        throw fail("could not open the thread of message \(root) in the open conversation.")
-                    }
-                    request.pane = .thread
-                }
-                request.target = target.timestamp
-                request.whole = thread
-            } else {
-                // Beside search results there is no conversation, so the open thread is what is meant.
-                if thread || !SlackHistory.hasList(.conversation, in: current) {
-                    if SlackHistory.hasList(.thread, in: current) {
-                        request.pane = .thread
-                    } else if thread {
-                        throw fail("no thread is open in Slack.")
-                    }
-                }
-                request.whole = thread && last == nil && find == nil
+            let request: SlackHistory.Request
+            switch try SlackRead.prepare(options, in: current) {
+            case .read(let planned):
+                request = planned
+            case let .openThread(root, planned):
+                let opened = try SlackHistory.openThread(root: root, driver: driver)
+                let after = opened ? [] : try driver.snapshot()
+                try SlackRead.afterOpeningThread(root: root, opened: opened, in: after)
+                request = planned
             }
-
             let windows = try SlackHistory.collect(request, driver: driver)
-            var focus: SlackRenderer.Focus?
-            if let target {
-                guard SlackInterpreter.contains(windows, timestamp: target.timestamp) else {
-                    throw fail("message \(target.timestamp) was not found in the open conversation.")
-                }
-                focus = .init(timestamp: target.timestamp, context: context, wholeThread: thread)
-            } else if let find {
-                let rows = SlackHistory.messageRows(request.pane, in: windows)
-                guard let match = rows.last(where: { SlackHistory.contains($0, text: find) })?.domID else {
-                    throw fail("no message containing \"\(find)\" was found in the last \(rows.count) messages.")
-                }
-                focus = .init(row: match, context: context)
-            }
-            let only = last != nil || (thread && target == nil) ? request.pane : nil
-            print(SlackRenderer.render(SlackInterpreter.read(windows), focus: focus, only: only))
+            let output = try SlackRead.output(options, request: request, in: windows)
+            print(SlackRenderer.render(SlackInterpreter.read(windows), focus: output.focus, only: output.only))
+        } catch let error as SlackRead.Failure {
+            throw fail(error.description)
         } catch let error as ReaderError {
             throw fail(error.description)
         }
