@@ -66,7 +66,7 @@ struct Slack: ParsableCommand {
             guard let parsed = SlackLink(link) else { throw fail("not a Slack message link: \(link)") }
             target = parsed
         }
-        let bundleID = SlackRenderer.bundleID
+        let bundleID = SlackInterpreter.bundleID
         let driver = SlackHistory.Driver(
             snapshot: { try Reader.snapshotWindows(bundleID: bundleID) },
             scrollToVisible: { Reader.scrollToVisible(bundleID: bundleID, domID: $0) },
@@ -86,7 +86,7 @@ struct Slack: ParsableCommand {
             request.containing = find
             if let target {
                 // Checked before scrolling, so a link to another conversation never moves the window.
-                if let open = SlackRenderer.openChannelID(current), open != target.channelID {
+                if let open = SlackInterpreter.openChannelID(current), open != target.channelID {
                     throw fail(
                         "the link points to conversation \(target.channelID), but Slack is showing \(open). "
                             + "Open that conversation in Slack and run this again.")
@@ -118,7 +118,7 @@ struct Slack: ParsableCommand {
             let windows = try SlackHistory.collect(request, driver: driver)
             var focus: SlackRenderer.Focus?
             if let target {
-                guard SlackRenderer.contains(windows, timestamp: target.timestamp) else {
+                guard SlackInterpreter.contains(windows, timestamp: target.timestamp) else {
                     throw fail("message \(target.timestamp) was not found in the open conversation.")
                 }
                 focus = .init(timestamp: target.timestamp, context: context, wholeThread: thread)
@@ -130,7 +130,7 @@ struct Slack: ParsableCommand {
                 focus = .init(row: match, context: context)
             }
             let only = last != nil || (thread && target == nil) ? request.pane : nil
-            print(SlackRenderer.render(windows, focus: focus, only: only))
+            print(SlackRenderer.render(SlackInterpreter.read(windows), focus: focus, only: only))
         } catch let error as ReaderError {
             throw fail(error.description)
         }

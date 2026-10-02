@@ -60,7 +60,7 @@ private let utc = TimeZone(identifier: "UTC")!
         ])
 
     #expect(
-        SlackRenderer.render([window(views: [view])], timeZone: utc) == """
+        render([window(views: [view])], timeZone: utc) == """
             # Slack: Acme
 
             ## Channel general
@@ -85,7 +85,7 @@ private func plain(id: String, _ body: String) -> Node {
         children: [plain(id: "message-list_1700000000.000100", "hello")])
 
     #expect(
-        SlackRenderer.render([window(views: [sidebar, view])], timeZone: utc) == """
+        render([window(views: [sidebar, view])], timeZone: utc) == """
             # Slack: Acme
 
             ## Channel general
@@ -103,7 +103,7 @@ private func plain(id: String, _ body: String) -> Node {
     let windows = [window(views: [channel, thread])]
 
     #expect(
-        SlackRenderer.render(windows, focus: .init(timestamp: "1700000003.000000", context: 1), timeZone: utc) == """
+        render(windows, focus: .init(timestamp: "1700000003.000000", context: 1), timeZone: utc) == """
             # Slack: Acme
 
             ## Channel general
@@ -112,7 +112,7 @@ private func plain(id: String, _ body: String) -> Node {
             [2023-11-14 22:13] alice: channel 4
             """)
     #expect(
-        SlackRenderer.render(windows, focus: .init(timestamp: "1700000005.000000", context: 1), timeZone: utc) == """
+        render(windows, focus: .init(timestamp: "1700000005.000000", context: 1), timeZone: utc) == """
             # Slack: Acme
 
             ## Thread
@@ -120,7 +120,7 @@ private func plain(id: String, _ body: String) -> Node {
             [2023-11-14 22:13] alice: reply 6
             """)
     #expect(
-        SlackRenderer.render(
+        render(
             windows, focus: .init(timestamp: "1700000005.000000", context: 1, wholeThread: true), timeZone: utc) == """
             # Slack: Acme
 
@@ -130,7 +130,7 @@ private func plain(id: String, _ body: String) -> Node {
             [2023-11-14 22:13] alice: reply 7
             """)
     #expect(
-        SlackRenderer.render(windows, only: .thread, timeZone: utc) == """
+        render(windows, only: .thread, timeZone: utc) == """
             # Slack: Acme
 
             ## Thread
@@ -138,16 +138,16 @@ private func plain(id: String, _ body: String) -> Node {
             [2023-11-14 22:13] alice: reply 6
             [2023-11-14 22:13] alice: reply 7
             """)
-    #expect(SlackRenderer.contains(windows, timestamp: "1700000006.000000"))
-    #expect(!SlackRenderer.contains(windows, timestamp: "1700000009.000000"))
+    #expect(SlackInterpreter.contains(windows, timestamp: "1700000006.000000"))
+    #expect(!SlackInterpreter.contains(windows, timestamp: "1700000009.000000"))
 }
 
 @Test func readsTheOpenConversationFromTheDateDivider() {
     let divider = Node(role: "AXGroup", domID: "message-list_1700000000000.C0123ABC", domClasses: ["c-virtual_list__item"])
     let list = Node(role: "AXList", children: [divider, plain(id: "message-list_1700000000.000100", "hello")])
 
-    #expect(SlackRenderer.openChannelID([window(views: [list])]) == "C0123ABC")
-    #expect(SlackRenderer.openChannelID([window(views: [])]) == nil)
+    #expect(SlackInterpreter.openChannelID([window(views: [list])]) == "C0123ABC")
+    #expect(SlackInterpreter.openChannelID([window(views: [])]) == nil)
 }
 
 @Test func parsesMessageLinks() {
@@ -168,7 +168,7 @@ private func plain(id: String, _ body: String) -> Node {
         children: [Node(role: "AXGroup", children: [text("hello"), Node(role: "AXButton", title: "Open")])])
 
     #expect(
-        SlackRenderer.render([window(views: [view])], timeZone: utc) == """
+        render([window(views: [view])], timeZone: utc) == """
             # Slack: Acme
 
             ## Something new
@@ -197,7 +197,7 @@ private func body(of content: [Node]) -> String {
                 children: [Node(role: "AXButton", title: "alice", domClasses: ["c-message__sender_button"])] + content)
         ])
     let view = Node(role: "AXGroup", description: "Channel general", domClasses: ["p-view_contents"], children: [row])
-    let output = SlackRenderer.render([window(views: [view])], timeZone: utc)
+    let output = render([window(views: [view])], timeZone: utc)
     return String(output.split(separator: "\n", maxSplits: 2, omittingEmptySubsequences: true)[2])
 }
 
@@ -301,7 +301,7 @@ private func link(_ label: String) -> Node {
         ])
 
     #expect(
-        SlackRenderer.render([window(views: [search])], timeZone: utc) == """
+        render([window(views: [search])], timeZone: utc) == """
             # Slack: Acme
 
             ## Search
@@ -317,10 +317,119 @@ private func link(_ label: String) -> Node {
     let view = Node(role: "AXGroup", description: "Channel general", domClasses: ["p-view_contents"], children: [row])
 
     #expect(
-        SlackRenderer.render([window(views: [view])], timeZone: utc) == """
+        render([window(views: [view])], timeZone: utc) == """
             # Slack: Acme
 
             ## Channel general
             [2023-11-14 22:13] alice: continued
             """)
+}
+
+private func render(
+    _ windows: [Node], focus: SlackRenderer.Focus? = nil, only: SlackHistory.Pane? = nil, timeZone: TimeZone
+) -> String {
+    SlackRenderer.render(SlackInterpreter.read(windows), focus: focus, only: only, timeZone: timeZone)
+}
+
+@Test func interpretsViewsAndBodyBlocksWithoutOutputMarkers() throws {
+    let shared = Node(role: "AXGroup", domClasses: ["c-message_attachment"], children: [
+        text("quoted words"),
+        Node(role: "AXGroup", description: "data.zip", domClasses: ["c-pillow_file_container"]),
+    ])
+    let view = Node(role: "AXGroup", description: "Channel general", domClasses: ["p-view_contents"], children: [
+        message(id: "message-list_1700000000.000100", sender: "alice", body: [text("hello")], extras: [
+            Node(role: "AXGroup", description: "outer.zip", domClasses: ["c-pillow_file_container"]),
+            text("after file"), shared, text("after quote"),
+        ]),
+        Node(role: "AXTextArea", value: "  unsent draft\n", domClasses: ["ql-editor"]),
+    ])
+    let unknown = Node(role: "AXGroup", description: "New view", domClasses: ["p-view_contents"], children: [text("visible")])
+    let screens = SlackInterpreter.read([window(views: [view, unknown])])
+    let screen = try #require(screens.first)
+    #expect(screen.workspace == "Acme")
+    #expect(screen.views.map(\.kind) == [.conversation, .unknown])
+    #expect(screen.views[0].title == "Channel general")
+    #expect(screen.views[0].draft == "unsent draft")
+    #expect(screen.views[1].plainText == ["visible"])
+    let parsed = try #require(screen.views[0].messages.first)
+    #expect(parsed.sender == "alice")
+    #expect(parsed.timestamp == "1700000000.000100")
+    #expect(parsed.sentDate == Date(timeIntervalSince1970: 1_700_000_000))
+    #expect(parsed.body == [
+        .paragraph([.text("hello")]), .file("outer.zip"), .paragraph([.text("after file")]),
+        .quote([.paragraph([.text("quoted words")]), .file("data.zip")]), .paragraph([.text("after quote")]),
+    ])
+    #expect(SlackRenderer.render(screens, timeZone: utc) == """
+        # Slack: Acme
+
+        ## Channel general
+        [2023-11-14 22:13] alice: hello
+          [file: outer.zip]
+          after file
+          > quoted words
+          > [file: data.zip]
+          after quote
+
+        draft in composer: unsent draft
+
+        ## New view
+        visible
+        """)
+}
+
+@Test func fillsOmittedSendersAfterFocusFiltering() {
+    var continued = message(id: "message-list_1700000060.000100", sender: nil, body: [text("continued")])
+    continued.title = "bob : continued"
+    let view = Node(role: "AXGroup", description: "Channel general", domClasses: ["p-view_contents"], children: [
+        plain(id: "message-list_1700000000.000100", "previous"), continued,
+    ])
+    let screens = SlackInterpreter.read([window(views: [view])])
+    #expect(screens[0].views[0].messages[1].sender == nil)
+    #expect(screens[0].views[0].messages[1].labelledSender == "bob")
+    #expect(SlackRenderer.render(screens, focus: .init(timestamp: "1700000060.000100", context: 0), timeZone: utc) == """
+        # Slack: Acme
+
+        ## Channel general
+        >> [2023-11-14 22:14] bob: continued
+        """)
+    #expect(SlackRenderer.render(screens, timeZone: utc).hasSuffix("[2023-11-14 22:14] alice: continued"))
+}
+
+@Test func preservesInlineControlsAndSearchHeaderFallback() throws {
+    let timestamp = Node(role: "AXLink", description: "Sep 24 01:10", domClasses: ["c-timestamp"])
+    let origin = Node(role: "AXLink", title: "original thread", domClasses: ["c-message__broadcast_preamble_link"])
+    let content = Node(role: "AXGroup", domClasses: ["c-message_kit__hover"], children: [
+        Node(role: "AXButton", title: "alice", domClasses: ["c-message__sender_button"]),
+        text("in "), Node(role: "AXButton", title: "general"), timestamp,
+        text("reply to"), origin, text("continued"), Node(role: "AXButton", title: "unknown control"),
+    ])
+    let row = Node(role: "AXGroup", domID: "search-result", children: [content])
+    let view = Node(role: "AXGroup", description: "Search", domClasses: ["p-view_contents", "p-view_contents--sidebar"], children: [row])
+    let screens = SlackInterpreter.read([window(views: [view])])
+    let parsed = try #require(screens[0].views[0].messages.first)
+    #expect(parsed.location == [.paragraph([.text("in "), .button("general")])])
+    #expect(parsed.body == [.paragraph([
+        .text("reply to "), .threadOrigin("original thread"), .text("\ncontinued"), .button("unknown control"),
+    ])])
+    #expect(SlackRenderer.render(screens, timeZone: utc) == """
+        # Slack: Acme
+
+        ## Search
+        [Sep 24 01:10] alice (in [general]): reply to [original thread]
+          continued[unknown control]
+        """)
+}
+
+@Test func formatsParagraphBoundariesFromTheReadingModel() {
+    let parsed = SlackMessage(rowID: nil, timestamp: nil, sentDate: nil, timeLabel: "12:00", sender: "alice",
+        labelledSender: nil, location: [], body: [.paragraph([.text("first")]), .paragraph([.text("second")])],
+        replies: nil, reactions: [])
+    let view = SlackView(title: "Channel general", kind: .conversation, searchSummary: [], messages: [parsed], draft: nil, plainText: [])
+    #expect(SlackRenderer.render([SlackScreen(workspace: nil, views: [view])], timeZone: utc) == """
+        # Slack
+
+        ## Channel general
+        [12:00] alice: first
+          second
+        """)
 }
