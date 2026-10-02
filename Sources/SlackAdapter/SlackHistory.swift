@@ -67,116 +67,63 @@ public enum SlackHistory {
     public static func collect(
         _ request: Request, driver: Driver, onTargetRendered: ((_ rowID: String) -> Void)? = nil
     ) throws -> [Node] {
-        let pane = request.pane
         let start = try driver.snapshot()
-        var rows = messageRows(pane, in: start)
-        guard let originalOldest = rows.first?.domID, let originalNewest = rows.last?.domID,
-            SlackInterpreter.rowID(timestamp: "", like: originalOldest) != nil
-        else { return start }
-
-        let targetID = request.target.flatMap { SlackInterpreter.rowID(timestamp: $0, like: originalOldest) }
-        var notified = false
-        func notifyIfRendered(_ rows: [Node]) {
-            guard !notified, let targetID, let onTargetRendered else { return }
-            if rows.contains(where: { $0.domID == targetID }) {
-                notified = true
-                onTargetRendered(targetID)
-            }
-        }
-        notifyIfRendered(rows)
-
-        var collected: [String: Node] = [:]
-        func keep(_ rows: [Node]) {
-            for row in rows {
-                guard let id = row.domID else { continue }
-                // A row read while on screen has usable geometry; do not replace it with a clipped copy.
-                if let existing = collected[id], SlackInterpreter.isOnScreen(existing), !SlackInterpreter.isOnScreen(row) { continue }
-                collected[id] = row
-            }
-        }
-        keep(rows)
-
-        func needsOlder(than oldest: String) -> Bool {
-            if let targetID, collected[targetID] == nil, SlackInterpreter.rowPrecedes(targetID, oldest) { return true }
-            if request.whole { return true }
-            if let last = request.last, collected.count < last { return true }
-            if let text = request.containing, !collected.values.contains(where: { contains($0, text: text) }) {
-                return true
-            }
-            return false
-        }
-
-        // A message that had to be searched for would otherwise sit at the very top with nothing
-        // before it, so read one page past it.
-        let searchesBack = needsOlder(than: originalOldest) && (request.target != nil || request.containing != nil)
-        var extraPages = max(request.olderPages, searchesBack ? 1 : 0)
-        let targetIsNewer = targetID.map { SlackInterpreter.rowPrecedes(originalNewest, $0) } ?? false
-        var scrollsLeft = request.scrollLimit
-        var scrollsUp = 0
-        while let oldest = rows.first?.domID, !targetIsNewer {
-            if needsOlder(than: oldest), scrollsLeft > 0 {
-                scrollsLeft -= 1
-            } else if extraPages > 0 {
-                extraPages -= 1
-            } else {
-                break
-            }
-            // A thread shows a separator under its first message, so its start needs no waiting for.
-            if pane == .thread, SlackInterpreter.list(pane, in: try driver.snapshot())?.children.contains(where: SlackInterpreter.isThreadStart) == true {
-                break
-            }
-            guard driver.scrollToVisible(oldest),
-                let older = try waitForRows(pane, driver, until: { $0.first?.domID != oldest })
-            else { break }  // Nothing older appeared: this is the start of the conversation.
-            scrollsUp += 1
-            rows = older
-            keep(rows)
-            notifyIfRendered(rows)
-        }
-
-        // Go down to where the list started, or further when the target is newer than that.
-        let goal = targetIsNewer ? targetID ?? originalNewest : originalNewest
-        if scrollsUp > 0 || targetIsNewer {
-            // Each step down reveals only a few rows, so allow several steps per scroll up.
-            let stepsDown = scrollsUp * 4 + 4 + (targetIsNewer ? request.scrollLimit : 0)
-            for _ in 0..<stepsDown {
-                guard let newest = rows.last?.domID, driver.scrollToVisible(newest) else { break }
-                if !SlackInterpreter.rowPrecedes(newest, goal) { break }
-                guard let newer = try waitForRows(pane, driver, until: { $0.last?.domID != newest }) else { break }
-                rows = newer
-                keep(rows)
-                notifyIfRendered(rows)
-            }
-        }
-
-        var merged = collected.keys.sorted(by: SlackInterpreter.rowPrecedes).compactMap { collected[$0] }
-        if let last = request.last { merged = Array(merged.suffix(last)) }
+        var plan = Plan(request, observation: SlackInterpreter.historyObservation(request.pane, in: start),
+                        notifyTarget: onTargetRendered != nil)
+        try run(&plan, driver: driver, onTargetRendered: onTargetRendered)
+        guard plan.validList else { return start }
         var replaced = false
-        return start.map { replaceList(pane, in: $0, with: merged, replaced: &replaced) }
+        return start.map { replaceList(request.pane, in: $0, with: plan.mergedRows, replaced: &replaced) }
     }
 
-    /// Makes sure the thread started by the message `root` is showing in the thread pane.
-    /// Returns false if the message cannot be found in the open conversation or has no thread.
-    /// The only thing it clicks is that message's reply count.
-    ///
-    /// Pressing the reply count opens the thread within about two seconds, replacing any thread
-    /// that was open, and leaves Slack in the background. A thread that is already open can only
-    /// be recognised while its first message is rendered, which a long thread scrolled to the
-    /// bottom does not do.
+    /// Opens the root message's reply count, then waits for that thread to appear.
+    /// An already open thread is recognised only while its first message is rendered.
     public static func openThread(root: String, driver: Driver) throws -> Bool {
-        if threadIsOpen(try driver.snapshot(), root: root) { return true }
         var request = Request()
         request.target = root
-        var pressed = false
-        _ = try collect(request, driver: driver) { rowID in
-            pressed = driver.press(rowID, SlackInterpreter.replyCountClass)
+        var plan = Plan(request, observation: SlackInterpreter.historyObservation(.conversation, in: try driver.snapshot()),
+                        openingThread: root)
+        try run(&plan, driver: driver)
+        return plan.threadOpened
+    }
+
+    private static func run(
+        _ plan: inout Plan, driver: Driver, onTargetRendered: ((String) -> Void)? = nil
+    ) throws {
+        var observation: SlackInterpreter.HistoryObservation?
+        var succeeded = true
+        while true {
+            switch plan.next(after: observation, succeeded: succeeded) {
+            case .observe:
+                observation = SlackInterpreter.historyObservation(plan.request.pane, in: try driver.snapshot())
+            case let .scroll(id, change):
+                succeeded = driver.scrollToVisible(id)
+                if succeeded, let change {
+                    observation = try wait(plan.request.pane, driver, for: change)
+                } else {
+                    observation = nil
+                }
+            case let .notify(id):
+                onTargetRendered?(id)
+            case let .press(id):
+                succeeded = driver.press(id, SlackInterpreter.replyCountClass)
+            case let .waitForThread(root):
+                observation = try wait(plan.request.pane, driver, for: .thread(root))
+            case .done:
+                return
+            }
         }
-        guard pressed else { return false }
+    }
+
+    private static func wait(
+        _ pane: Pane, _ driver: Driver, for change: Change
+    ) throws -> SlackInterpreter.HistoryObservation? {
         for _ in 0..<pollsPerScroll {
             driver.pause()
-            if threadIsOpen(try driver.snapshot(), root: root) { return true }
+            let observation = SlackInterpreter.historyObservation(pane, in: try driver.snapshot())
+            if change.matches(observation) { return observation }
         }
-        return false
+        return nil
     }
 
     public static func hasList(_ pane: Pane, in windows: [Node]) -> Bool {
@@ -191,23 +138,6 @@ public enum SlackHistory {
     /// Whether the message's visible text contains `text`, ignoring case.
     public static func contains(_ row: Node, text: String) -> Bool {
         SlackInterpreter.plainText(row).joined(separator: " ").localizedCaseInsensitiveContains(text)
-    }
-
-    /// The thread pane lists the thread's first message at the top.
-    private static func threadIsOpen(_ windows: [Node], root: String) -> Bool {
-        windows.contains { window in
-            window.all(where: SlackInterpreter.isThreadView).contains { SlackInterpreter.contains([$0], timestamp: root) }
-        }
-    }
-
-    /// Polls until the rendered rows satisfy `changed`. Returns nil if they never do.
-    private static func waitForRows(_ pane: Pane, _ driver: Driver, until changed: ([Node]) -> Bool) throws -> [Node]? {
-        for _ in 0..<pollsPerScroll {
-            driver.pause()
-            let rows = try messageRows(pane, in: driver.snapshot())
-            if changed(rows) { return rows }
-        }
-        return nil
     }
 
     private static func replaceList(_ pane: Pane, in node: Node, with rows: [Node], replaced: inout Bool) -> Node {

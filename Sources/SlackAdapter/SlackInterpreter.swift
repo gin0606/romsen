@@ -139,6 +139,21 @@ public enum SlackInterpreter {
         return nil
     }
 
+    struct HistoryObservation {
+        var rows: [Node]
+        var atThreadStart: Bool
+        var openThreadRoots: Set<String>
+    }
+
+    static func historyObservation(_ pane: SlackHistory.Pane, in windows: [Node]) -> HistoryObservation {
+        let list = list(pane, in: windows)
+        let roots = windows.flatMap { $0.all(where: isThreadView) }
+            .flatMap { $0.all(where: isPagingMessageRow) }.compactMap { $0.domID.flatMap(timestamp) }
+        return HistoryObservation(rows: list?.children.filter(isPagingMessageRow) ?? [],
+                                  atThreadStart: list?.children.contains(where: isThreadStart) == true,
+                                  openThreadRoots: Set(roots))
+    }
+
     private static func searchSummary(_ view: Node) -> [String] {
         func text(classPrefix: String) -> String? {
             view.first { $0.domClasses.contains { $0.hasPrefix(classPrefix) } }
