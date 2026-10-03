@@ -94,7 +94,7 @@ struct Slack: ParsableCommand {
                 throw ValidationError("could not read snapshot at \(fromSnapshot): \(error.localizedDescription)")
             }
             return SlackHistory.Driver(snapshot: { windows }, scrollToVisible: { _ in false },
-                                       pause: {}, press: { _, _ in false })
+                                       pause: {}, press: { _, _ in false }, source: .saved)
         }
         let bundleID = SlackInterpreter.bundleID
         return SlackHistory.Driver(
@@ -102,7 +102,6 @@ struct Slack: ParsableCommand {
             scrollToVisible: { Reader.scrollToVisible(bundleID: bundleID, domID: $0) },
             pause: { Thread.sleep(forTimeInterval: 0.3) },
             press: { Reader.press(bundleID: bundleID, domID: $0, descendantClass: $1) })
-
     }
 
     func read(using driver: SlackHistory.Driver, warn: (String) -> Void = { _ in }) throws -> String {
@@ -128,18 +127,17 @@ struct Slack: ParsableCommand {
         case .read(let planned):
             request = planned
         case let .openThread(root, planned):
-            let alreadyOpen = SlackInterpreter.openThreadRoot(in: current) == root
-            let opened = alreadyOpen || fromSnapshot != nil
-                ? alreadyOpen : try SlackHistory.openThread(root: root, driver: driver, onThreadRead: { threadReads.append($0) })
-            // A saved tree cannot confirm navigation to a different thread.
-            let after = opened || fromSnapshot != nil ? [] : try driver.snapshot()
+            let opening = SlackRead.openingThread(root: root, in: current, source: driver.source)
+            let opened = opening.press
+                ? try SlackHistory.openThread(root: root, driver: driver, onThreadRead: { threadReads.append($0) })
+                : opening.alreadyOpen
+            let after = !opened && opening.rereadIfUnconfirmed ? try driver.snapshot() : []
             try SlackRead.afterOpeningThread(root: root, opened: opened, in: after)
             request = planned
-            if fromSnapshot == nil && !alreadyOpen { initial = threadReads.last }
+            if opening.startFromThreadRead { initial = threadReads.last }
         }
         let windows = try SlackHistory.collect(request, driver: driver, initial: initial, observations: threadReads)
-        let output = try SlackRead.output(options, request: request, in: windows,
-                                         limitToPane: fromSnapshot != nil && options.target != nil)
+        let output = try SlackRead.output(options, request: request, in: windows, source: driver.source)
         let screens = SlackInterpreter.read(windows)
         for diagnostic in SlackInterpreter.diagnostics(screens, focus: output.focus, only: output.only, last: output.last) {
             warn(diagnostic.rawValue)

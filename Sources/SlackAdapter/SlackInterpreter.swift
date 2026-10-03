@@ -197,8 +197,12 @@ public enum SlackInterpreter {
 
     public static func contains(_ windows: [Node], timestamp: String) -> Bool {
         windows.contains { window in
-            window.first { isPagingMessageRow($0) && $0.domID?.hasSuffix("_" + timestamp) == true } != nil
+            window.first { isPagingMessageRow($0) && isRow($0, of: timestamp) } != nil
         }
+    }
+
+    static func isRow(_ row: Node, of timestamp: String) -> Bool {
+        row.domID?.hasSuffix("_" + timestamp) == true
     }
 
     public static func openChannelID(_ windows: [Node]) -> String? {

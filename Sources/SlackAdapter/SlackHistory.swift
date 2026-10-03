@@ -20,18 +20,27 @@ public enum SlackHistory {
         public var pause: () -> Void
         /// Clicks the element with the given class inside the element with the given DOM id.
         public var press: (_ domID: String, _ descendantClass: String) -> Bool
+        /// Whether `snapshot` observes Slack or replays a saved tree.
+        public var source: Source
 
         public init(
             snapshot: @escaping () throws -> [Node],
             scrollToVisible: @escaping (String) -> Bool,
             pause: @escaping () -> Void,
-            press: @escaping (String, String) -> Bool = { _, _ in false }
+            press: @escaping (String, String) -> Bool = { _, _ in false },
+            source: Source = .live
         ) {
             self.snapshot = snapshot
             self.scrollToVisible = scrollToVisible
             self.pause = pause
             self.press = press
+            self.source = source
         }
+    }
+
+    /// Where the observed tree comes from. A saved tree cannot be scrolled, clicked, or observed again.
+    public enum Source: Sendable {
+        case live, saved
     }
 
     /// The two message lists Slack can show side by side.

@@ -72,6 +72,26 @@ public enum SlackRead {
         return .read(request)
     }
 
+    /// How to reach the thread of `root` before reading it.
+    public struct ThreadOpening: Equatable, Sendable {
+        /// The thread is open in the current tree, so it counts as opened without a click.
+        public let alreadyOpen: Bool
+        /// Click the root's reply control to open the thread.
+        public let press: Bool
+        /// When the click cannot confirm the thread, observe again to check for an open thread.
+        public let rereadIfUnconfirmed: Bool
+        /// Start collecting from the last thread observed while opening instead of the current tree.
+        public let startFromThreadRead: Bool
+    }
+
+    public static func openingThread(root: String, in current: [Node], source: SlackHistory.Source) -> ThreadOpening {
+        let alreadyOpen = SlackInterpreter.openThreadRoot(in: current) == root
+        // A saved tree cannot confirm navigation to a different thread.
+        let press = !alreadyOpen && source == .live
+        return ThreadOpening(alreadyOpen: alreadyOpen, press: press,
+                             rereadIfUnconfirmed: source == .live, startFromThreadRead: press)
+    }
+
     public static func afterOpeningThread(root: String, opened: Bool, in current: [Node]) throws {
         // A long open thread may have scrolled its root out of the rendered rows.
         guard opened || SlackHistory.hasList(.thread, in: current) else {
@@ -80,11 +100,13 @@ public enum SlackRead {
     }
 
     public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node],
-                              limitToPane: Bool = false) throws -> Output {
+                              source: SlackHistory.Source = .live) throws -> Output {
+        // A saved tree may hold the target in another pane that the requested one never replaced.
+        let limitToPane = source == .saved && options.target != nil
         var focus: SlackRenderer.Focus?
         if let target = options.target {
             let found = limitToPane
-                ? SlackHistory.messageRows(request.pane, in: windows).contains { $0.domID?.hasSuffix("_" + target.timestamp) == true }
+                ? SlackHistory.messageRows(request.pane, in: windows).contains { SlackInterpreter.isRow($0, of: target.timestamp) }
                 : SlackInterpreter.contains(windows, timestamp: target.timestamp)
             guard found else {
                 throw Failure(description: "message \(target.timestamp) was not found in the open conversation.")

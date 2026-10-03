@@ -141,3 +141,37 @@ func allowsAConfirmedThreadOrAnUnconfirmedExistingThread(opened: Bool) throws {
     #expect(request.pane == .conversation)
     #expect(!request.whole)
 }
+
+@Test func decidesHowToReachALinkedThread() {
+    var windows = readScreen()
+    windows[0].children[1].children[0].children.insert(
+        Node(role: "AXGroup", domID: "message-list_Thread_separator"), at: 1)
+    let open = "1700000000.000100", closed = "1699999999.000000"
+    #expect(SlackRead.openingThread(root: closed, in: windows, source: .live)
+        == .init(alreadyOpen: false, press: true, rereadIfUnconfirmed: true, startFromThreadRead: true))
+    #expect(SlackRead.openingThread(root: open, in: windows, source: .live)
+        == .init(alreadyOpen: true, press: false, rereadIfUnconfirmed: true, startFromThreadRead: false))
+    #expect(SlackRead.openingThread(root: closed, in: windows, source: .saved)
+        == .init(alreadyOpen: false, press: false, rereadIfUnconfirmed: false, startFromThreadRead: false))
+    #expect(SlackRead.openingThread(root: open, in: windows, source: .saved)
+        == .init(alreadyOpen: true, press: false, rereadIfUnconfirmed: false, startFromThreadRead: false))
+}
+
+@Test(arguments: [SlackHistory.Source.live, .saved])
+func limitsALinkedTargetToTheRequestedPaneOnlyInASavedTree(source: SlackHistory.Source) throws {
+    let options = try SlackRead.Options(link: "https://example.slack.com/archives/C123/p1700000001000100")
+    var request = SlackHistory.Request()
+    request.pane = .thread
+    if source == .live {
+        let output = try SlackRead.output(options, request: request, in: readScreen(), source: source)
+        #expect(output.only == nil)
+    } else {
+        #expect(throws: SlackRead.Failure.self) {
+            try SlackRead.output(options, request: request, in: readScreen(), source: source)
+        }
+        let rootLink = try SlackRead.Options(link: readLink)
+        #expect(try SlackRead.output(rootLink, request: request, in: readScreen(), source: source).only == .thread)
+    }
+    let unlinked = try SlackRead.Options(find: "needle")
+    #expect(try SlackRead.output(unlinked, request: request, in: readScreen(), source: source).only == nil)
+}
