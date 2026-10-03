@@ -56,6 +56,14 @@ Working assumptions, not fixed rules.
 - **Read-only.** It scrolls and opens threads. It never types or presses anything that could
   send or change a message.
 
+## Release
+
+`scripts/release 1.2.3` runs on a clean `main` that is not behind `origin/main`. It checks that
+`v1.2.3` is not on origin yet, runs `swift test`, creates the annotated tag `v1.2.3`, and pushes
+`main` and the tag together. The tag starts the release workflow, which tests and builds the
+arm64 binary, publishes the GitHub Release, and updates the formula in `gin0606/homebrew-tap`.
+A failed run can be re-run for the same tag.
+
 ## License
 
 [MIT](LICENSE)

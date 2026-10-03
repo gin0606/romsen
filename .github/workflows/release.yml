@@ -1,0 +1,247 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    # The tests use swift-testing, which needs Xcode 16 or later. The same image as CI.
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    env:
+      ASSET: romsen-${{ github.ref_name }}-macos-arm64.tar.gz
+
+    defaults:
+      run:
+        # The default `bash -e` does not set pipefail, so a failure on the left of a pipe would
+        # pass an empty value downstream.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history, so the tag can be checked against main.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Three integers only. A mistyped v0.14 for v0.1.4 would reach the tap as 0.14, and brew
+      # would treat the next release as a downgrade.
+      - name: Check the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "tag $GITHUB_REF_NAME must have the form vx.y.z" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "the release tag must point to a commit on main" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Fails before the build if the tap credentials are unavailable. The token expires after an
+      # hour, so the tap steps request another one.
+      - name: Check the tap credentials
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: gin0606
+          repositories: homebrew-tap
+
+      - name: Test
+        run: swift test
+
+      # The checkout is thrown away after the job, so the rewritten version source is not restored.
+      - name: Build and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sed -i '' "s/^let romsenVersion = \"0.0.0-dev\"\$/let romsenVersion = \"$VERSION\"/" Sources/romsen/Version.swift
+          swift build -c release --arch arm64
+          bin_dir="$(swift build -c release --arch arm64 --show-bin-path)"
+          bin="$bin_dir/romsen"
+
+          built="$("$bin" --version)"
+          if [ "$built" != "$VERSION" ]; then
+            echo "romsen --version reports '$built', expected '$VERSION'" >&2
+            exit 1
+          fi
+
+          # The formula declares macOS 13 or later.
+          minos="$(vtool -show-build "$bin" | awk '/minos/ { print $2 }')"
+          if [ -z "$minos" ]; then
+            echo "could not read the minimum macOS version of $bin" >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$minos" 13.0 | sort -V | tail -1)" != 13.0 ]; then
+            echo "$bin requires macOS $minos, above the declared 13.0" >&2
+            exit 1
+          fi
+
+          mkdir dist
+          COPYFILE_DISABLE=1 tar -czf "dist/$ASSET" -C "$bin_dir" romsen -C "$GITHUB_WORKSPACE" LICENSE
+          test -s "dist/$ASSET"
+
+      # The release stays a draft until everything that can fail is done, because publishing
+      # cannot be undone. Draft assets may be replaced safely. A rerun after publication reuses
+      # the published bytes, so the tap can never advertise a different checksum.
+      - name: Upload or recover the release asset
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          state=missing
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')" = true ]; then
+              state=draft
+            else
+              state=published
+            fi
+          fi
+
+          if [ "$state" = published ]; then
+            if [ "$RUN_ATTEMPT" = 1 ]; then
+              echo "$GITHUB_REF_NAME is already published outside this workflow run" >&2
+              exit 1
+            fi
+            mkdir published
+            gh release download "$GITHUB_REF_NAME" --pattern "$ASSET" --dir published
+            asset_dir=published
+          else
+            if [ "$state" = missing ]; then
+              gh release create "$GITHUB_REF_NAME" --draft --generate-notes
+            fi
+            gh release upload "$GITHUB_REF_NAME" "dist/$ASSET" --clobber
+            asset_dir=dist
+          fi
+          test -s "$asset_dir/$ASSET"
+
+          sha256="$(shasum -a 256 "$asset_dir/$ASSET" | cut -d ' ' -f 1)"
+          if ! printf '%s' "$sha256" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "could not compute the sha256 of $asset_dir/$ASSET" >&2
+            exit 1
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: gin0606
+          repositories: homebrew-tap
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: gin0606/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: tap
+
+      # Writes and checks the formula without committing it, so a broken formula fails before
+      # publication.
+      - name: Generate the Homebrew formula
+        working-directory: tap
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.asset.outputs.sha256 }}
+        run: |
+          # A slower release finishing after a faster one would roll the tap back.
+          if [ -f romsen.rb ]; then
+            current="$(sed -n 's/^  version "\(.*\)"$/\1/p' romsen.rb)"
+            if [ -z "$current" ]; then
+              echo "could not read the current romsen formula version" >&2
+              exit 1
+            fi
+            newest="$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -1)"
+            if [ "$current" != "$VERSION" ] && [ "$newest" = "$current" ]; then
+              echo "the tap already contains newer version $current" >&2
+              exit 1
+            fi
+          fi
+
+          cat > romsen.rb <<FORMULA
+          class Romsen < Formula
+            desc "Print what the Slack desktop app shows as text, via the Accessibility API"
+            homepage "https://github.com/gin0606/romsen"
+            version "$VERSION"
+            url "https://github.com/gin0606/romsen/releases/download/v#{version}/romsen-v#{version}-macos-arm64.tar.gz"
+            sha256 "$SHA256"
+            license "MIT"
+
+            depends_on arch: :arm64
+            depends_on macos: :ventura
+
+            def install
+              bin.install "romsen"
+            end
+
+            def caveats
+              <<~EOS
+                romsen reads Slack through the macOS Accessibility API. The permission belongs to
+                the app that runs romsen, such as your terminal or agent host, not to romsen
+                itself. Allow that app in System Settings > Privacy & Security > Accessibility.
+              EOS
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/romsen --version")
+            end
+          end
+          FORMULA
+          ruby -c romsen.rb
+
+      - name: Publish the release
+        if: steps.asset.outputs.state != 'published'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+
+      # After publication, so the tap never points at an unpublished release. A failure here
+      # leaves a correct release, and brew keeps serving the previous version.
+      - name: Push the Homebrew formula
+        working-directory: tap
+        run: |
+          git add romsen.rb
+          if git diff --cached --quiet; then
+            echo "the tap already points at this release"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update romsen formula to $GITHUB_REF_NAME"
+
+          # Other repositories' releases write to the same tap, so rebase onto theirs and retry.
+          pushed=""
+          for _ in 1 2 3; do
+            # A rebase stopped by a previous attempt would make every later pull fail at once.
+            git rebase --abort 2>/dev/null || true
+            if git pull --rebase && git push; then
+              pushed=yes
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$pushed" ]; then
+            echo "could not push the Homebrew formula" >&2
+            exit 1
+          fi
