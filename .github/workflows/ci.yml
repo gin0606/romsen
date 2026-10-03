@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# Runs on main get one group per commit. Sharing a group would let a later push cancel the
+# run of an earlier commit and leave a cancelled record on a commit that may be tagged for release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # The same image as the release workflow, so a passing run predicts the release build.
+    # The tests use swift-testing, which needs Xcode 16 or later.
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Pull request code is built and run here, so no token is left behind.
+          persist-credentials: false
+
+      # Lets a failure caused by a runner image change be diagnosed from the log alone.
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        run: swift test
+
+      # swift test does not go through the release version stamping. Exercising it here
+      # catches a broken stamping path before a release tag is pushed.
+      - name: Build a release with a stamped version
+        shell: bash
+        env:
+          VERSION: 0.0.1
+        run: |
+          bin=$(scripts/build-release "$VERSION" --arch arm64)
+          version=$("$bin" --version)
+          echo "romsen --version: $version"
+          test "$version" = "$VERSION"
+          # The stamped source must be restored so it cannot be committed by accident.
+          git diff --exit-code
