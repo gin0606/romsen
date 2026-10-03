@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Builds romsen in release configuration with `romsen --version` reporting VERSION.
+#
+# Usage: scripts/build-release VERSION [swift build options...]
+#
+# VERSION must be x.y.z (the release tag without its leading "v"). Extra options are passed
+# to `swift build -c release`, e.g. `--arch arm64`. The version source is rewritten only for
+# the build and restored on exit, so the working tree is left as it was. On success, the
+# built binary's version is checked and its path is printed on stdout.
+set -euo pipefail
+
+usage() {
+    echo "usage: $0 VERSION [swift build options...]"
+    echo "VERSION must be x.y.z, e.g. 1.2.3"
+}
+
+case ${1-} in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    "")
+        usage >&2
+        exit 2
+        ;;
+esac
+
+version=$1
+shift
+if [[ ! $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo "error: invalid version '$version'" >&2
+    usage >&2
+    exit 2
+fi
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+source_file="$root/Sources/romsen/Version.swift"
+dev_line='let romsenVersion = "0.0.0-dev"'
+
+# Temporary files live under .build, outside the target's sources and on the same file system,
+# so a rename can replace the source in one step.
+work=$root/.build/build-release
+mkdir -p "$work"
+backup=
+restore_backup=0
+restore() {
+    [[ -n $backup ]] || return 0
+    if [[ $restore_backup == 1 ]]; then
+        # A copy renamed into place cannot be left truncated. It keeps the source's mode, and its
+        # new timestamp makes the next build see that the source changed.
+        local restored
+        if ! restored=$(mktemp "$work/Version.swift.XXXXXX") ||
+            ! cp -p "$backup" "$restored" || ! touch "$restored" ||
+            ! mv "$restored" "$source_file"; then
+            echo "error: could not restore $source_file; the original is in $backup" >&2
+            exit 1
+        fi
+    fi
+    rm -f "$backup"
+}
+trap restore EXIT
+backup=$(mktemp "$work/Version.swift.orig.XXXXXX")
+cp -p "$source_file" "$backup"
+
+# Checking the copy that will be restored, and refusing anything but the committed development
+# value, keeps a source left rewritten by a killed or concurrent run from being restored as the
+# original.
+if [[ $(grep -cxF "$dev_line" "$backup") -ne 1 ]] ||
+    [[ $(grep -c '^let romsenVersion' "$backup") -ne 1 ]]; then
+    echo "error: $source_file must declare romsenVersion as \"0.0.0-dev\" exactly once" >&2
+    echo "Reset it to the committed version (a run that was killed keeps the original under $work)" >&2
+    echo "and make sure no other build is running." >&2
+    exit 1
+fi
+restore_backup=1
+
+released_line="let romsenVersion = \"$version\""
+stamped=$(mktemp "$work/Version.swift.XXXXXX")
+cp -p "$backup" "$stamped" # keeps the source's mode; the content is replaced below
+sed "s/^${dev_line}\$/${released_line}/" "$backup" > "$stamped"
+mv "$stamped" "$source_file"
+
+cd "$root"
+swift build -c release "$@" >&2
+bin=$(swift build -c release "$@" --show-bin-path)
+built=$("$bin/romsen" --version)
+if [[ $built != "$version" ]]; then
+    echo "error: built binary reports version '$built', expected '$version'" >&2
+    exit 1
+fi
+echo "$bin/romsen"

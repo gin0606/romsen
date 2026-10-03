@@ -12,6 +12,12 @@ swift build -c release
 
 The launching app (terminal or agent host) needs the Accessibility permission.
 
+`romsen --version` prints `0.0.0-dev` unless built with a release version.
+`scripts/build-release 1.2.3` makes a release build that reports `1.2.3`, checks it, and
+prints the binary's path. It changes the version source only during the build and restores it
+afterwards, so a later `swift build -c release` replaces that binary with a development build.
+Options after the version go to `swift build`.
+
 ## Compare output from the same screen
 
 Save the initial accessibility tree as JSON, then replay it with either build:
