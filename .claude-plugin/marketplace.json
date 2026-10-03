@@ -1,0 +1,14 @@
+{
+  "name": "romsen",
+  "description": "Read Slack desktop conversations with romsen.",
+  "owner": {
+    "name": "gin0606"
+  },
+  "plugins": [
+    {
+      "name": "romsen",
+      "source": "./plugins/romsen",
+      "description": "Read the conversation open in Slack with the romsen CLI."
+    }
+  ]
+}

@@ -23,6 +23,64 @@ romsen は macOS の Accessibility API で Slack を読みます。権限は rom
 (ターミナルやエージェントのホスト) に付きます。システム設定 > プライバシーとセキュリティ > アクセシビリティ で
 そのアプリを許可してください。
 
+## エージェント用 plugin (Codex / Claude Code)
+
+両ホストで共通の `slack` skill を提供します。開いている会話、メッセージのリンク、最新の発言、
+テキスト探索、スレッド全体の読み取りに使えます。先に [Homebrew で本体を導入](#導入)してください。
+plugin は romsen の実行ファイルを同梱しません。エージェントのシェルで `command -v romsen` が通ることを確認し、
+起動元のアプリに[アクセシビリティの権限](#アクセシビリティの権限)を付け、人が Slack デスクトップアプリで対象の会話を開きます。
+読み取りではスクロールやスレッド表示が起こりますが、送信や会話の切り替えは行いません。
+標準エラーに警告があれば、skill は読み取りが不完全な可能性を伝えます。
+
+このリポジトリを取得するか、`plugins/romsen/` を含む既存の checkout を使います。
+
+```sh
+git clone https://github.com/gin0606/romsen.git
+cd romsen
+```
+
+以下の導入コマンドはこのディレクトリで実行します。ローカル marketplace の更新に使うため checkout は残してください。
+導入後の skill は PATH 上の `romsen` を呼ぶので、エージェントは別の作業ディレクトリから利用できます。
+
+### Codex
+
+```sh
+codex plugin marketplace add .
+codex plugin add romsen@romsen
+```
+
+新しい Codex セッションを開始します。導入時に有効になります。無効化していた場合は、
+`~/.codex/config.toml` の `[plugins."romsen@romsen"]` で `enabled = true` にします。
+`$romsen:slack いま Slack に表示されている内容を読んで` と呼び出します。
+
+### Claude Code
+
+```sh
+claude plugin marketplace add "$(pwd)"
+claude plugin install romsen@romsen --scope user
+claude plugin list
+```
+
+`romsen@romsen` が有効であることを確認し、必要なら `claude plugin enable romsen@romsen` で有効化します。
+新しいセッションで `/romsen:slack いま Slack に表示されている内容を読んで` と呼び出します。
+`claude plugin details romsen` で共通の `slack` skill を確認できます。
+
+### ローカルの変更を検証する
+
+`plugins/romsen/` の両ホスト用 manifest は、同じ `skills/slack/SKILL.md` を読み込みます。
+Claude Code の plugin と marketplace は次のコマンドで検証できます。
+
+```sh
+claude plugin validate ./plugins/romsen --strict
+claude plugin validate . --strict
+```
+
+Codex はローカル marketplace からの導入を再実行し、新しいセッションで skill を確認します。
+plugin CLI に単独の validator はありません。両ホストとも、このリポジトリの外から読み取りを試してください。
+検証記録にはホスト、バージョン、導入経路、成功・失敗だけを残し、実際の Slack の内容やリンクを書かないでください。
+形式の参照先: [Codex](https://developers.openai.com/plugins/build/plugins)、
+[Claude Code](https://code.claude.com/docs/en/plugin-marketplaces)。
+
 ## 同じ画面からの出力を比較する
 
 最初に読み取った Accessibility ツリーを JSON で保存し、変更前後のビルドで読み戻せます。

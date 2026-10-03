@@ -1,0 +1,20 @@
+{
+  "name": "romsen",
+  "interface": {
+    "displayName": "romsen"
+  },
+  "plugins": [
+    {
+      "name": "romsen",
+      "source": {
+        "source": "local",
+        "path": "./plugins/romsen"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -23,6 +23,69 @@ romsen reads Slack through the macOS Accessibility API. The permission belongs t
 launches romsen, such as your terminal or agent host, not to romsen itself. Allow that app in
 System Settings > Privacy & Security > Accessibility.
 
+## Agent plugin (Codex / Claude Code)
+
+The plugin provides one shared `slack` skill for reading the open conversation,
+message links, recent messages, text matches, and whole threads. Install the CLI
+with [Homebrew](#install) first; the plugin does not bundle romsen. Make sure
+`command -v romsen` works in the agent's shell, grant the launching app
+[Accessibility permission](#accessibility-permission), and open the intended
+conversation in the Slack desktop app. Reads may scroll or open a thread, but do
+not send messages or switch conversations. The skill reports incomplete reads
+when romsen warns on stderr.
+
+Get this repository, or use an existing checkout containing `plugins/romsen/`:
+
+```sh
+git clone https://github.com/gin0606/romsen.git
+cd romsen
+```
+
+Run the installation commands below from this directory. Keep the checkout for
+local marketplace updates. The installed skill calls `romsen` on PATH, so agent
+sessions can run from other working directories.
+
+### Codex
+
+```sh
+codex plugin marketplace add .
+codex plugin add romsen@romsen
+```
+
+Start a new Codex session. Installation enables the plugin; if it was disabled,
+set `enabled = true` under `[plugins."romsen@romsen"]` in `~/.codex/config.toml`.
+Invoke the skill with `$romsen:slack Read what is currently visible in Slack`.
+
+### Claude Code
+
+```sh
+claude plugin marketplace add "$(pwd)"
+claude plugin install romsen@romsen --scope user
+claude plugin list
+```
+
+Check that `romsen@romsen` is enabled (use `claude plugin enable romsen@romsen` if
+needed), then start a new session and enter
+`/romsen:slack Read what is currently visible in Slack`.
+`claude plugin details romsen` lists the shared `slack` skill.
+
+### Validate local changes
+
+The host manifests in `plugins/romsen/` both load `skills/slack/SKILL.md`.
+Validate the Claude Code package and marketplace with:
+
+```sh
+claude plugin validate ./plugins/romsen --strict
+claude plugin validate . --strict
+```
+
+For Codex, repeat the local marketplace installation and check the skill in a new
+session; its plugin CLI has no standalone validator. For either host, test a read
+from outside this repository. Record only the host, version, installation route,
+and success/failure; keep actual Slack content and links out of validation records.
+Packaging references: [Codex](https://developers.openai.com/plugins/build/plugins)
+and [Claude Code](https://code.claude.com/docs/en/plugin-marketplaces).
+
 ## Compare output from the same screen
 
 Save the initial accessibility tree as JSON, then replay it with either build:
