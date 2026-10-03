@@ -12,6 +12,21 @@ swift build -c release
 
 The launching app (terminal or agent host) needs the Accessibility permission.
 
+## Compare output from the same screen
+
+Save the initial accessibility tree as JSON, then replay it with either build:
+
+```sh
+.build/debug/romsen slack --save-snapshot /tmp/screen.json
+.build/debug/romsen slack --from-snapshot /tmp/screen.json --last 10
+```
+
+Replay does not access Slack or need Accessibility permission. It supports the same options,
+including `--raw`, but cannot scroll or open threads. Reads are limited to the saved messages;
+a missing search or link target fails. Thread links need the requested thread already open,
+with its start captured. The saved file contains Slack content: keep it private, do not commit
+it, and delete it and any captured output after comparing.
+
 ## Current direction
 
 Working assumptions, not fixed rules.

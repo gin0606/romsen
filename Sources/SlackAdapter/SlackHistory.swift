@@ -65,9 +65,10 @@ public enum SlackHistory {
     /// satisfying `request`. `onTargetRendered` runs once, while the target's row is rendered and
     /// before the list scrolls away from it.
     public static func collect(
-        _ request: Request, driver: Driver, onTargetRendered: ((_ rowID: String) -> Void)? = nil
+        _ request: Request, driver: Driver, initial: [Node]? = nil,
+        onTargetRendered: ((_ rowID: String) -> Void)? = nil
     ) throws -> [Node] {
-        let start = try driver.snapshot()
+        let start = try initial ?? driver.snapshot()
         var plan = Plan(request, observation: SlackInterpreter.historyObservation(request.pane, in: start),
                         notifyTarget: onTargetRendered != nil)
         try run(&plan, driver: driver, onTargetRendered: onTargetRendered)

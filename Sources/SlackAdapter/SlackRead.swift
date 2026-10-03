@@ -78,10 +78,14 @@ public enum SlackRead {
         }
     }
 
-    public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node]) throws -> Output {
+    public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node],
+                              limitToPane: Bool = false) throws -> Output {
         var focus: SlackRenderer.Focus?
         if let target = options.target {
-            guard SlackInterpreter.contains(windows, timestamp: target.timestamp) else {
+            let found = limitToPane
+                ? SlackHistory.messageRows(request.pane, in: windows).contains { $0.domID?.hasSuffix("_" + target.timestamp) == true }
+                : SlackInterpreter.contains(windows, timestamp: target.timestamp)
+            guard found else {
                 throw Failure(description: "message \(target.timestamp) was not found in the open conversation.")
             }
             focus = .init(timestamp: target.timestamp, context: options.context, wholeThread: options.thread)
@@ -92,6 +96,6 @@ public enum SlackRead {
             }
             focus = .init(row: match, context: options.context)
         }
-        return Output(focus: focus, only: options.last != nil || (options.thread && options.target == nil) ? request.pane : nil)
+        return Output(focus: focus, only: limitToPane || options.last != nil || (options.thread && options.target == nil) ? request.pane : nil)
     }
 }

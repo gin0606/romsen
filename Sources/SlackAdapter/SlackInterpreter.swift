@@ -126,6 +126,14 @@ public enum SlackInterpreter {
         return nil
     }
 
+    /// Identifies the open thread only when its root and reply separator are captured.
+    public static func openThreadRoot(in windows: [Node]) -> String? {
+        guard let list = list(.thread, in: windows),
+              let separator = list.children.firstIndex(where: isThreadStart),
+              let root = list.children[..<separator].first(where: isPagingMessageRow) else { return nil }
+        return root.domID.flatMap(timestamp)
+    }
+
     public static func hasList(_ pane: SlackHistory.Pane, in windows: [Node]) -> Bool { list(pane, in: windows) != nil }
 
     static func list(_ pane: SlackHistory.Pane, in windows: [Node]) -> Node? {

@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// A point-in-time copy of one accessibility element and its subtree.
-public struct Node: Equatable, Sendable {
+public struct Node: Codable, Equatable, Sendable {
     public var role: String
     public var subrole: String?
     public var title: String?

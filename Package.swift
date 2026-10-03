@@ -14,11 +14,13 @@ let package = Package(
         .executableTarget(
             name: "romsen",
             dependencies: [
+                "AXTree",
                 "AXSnapshot",
                 "SlackAdapter",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .testTarget(name: "SlackAdapterTests", dependencies: ["SlackAdapter", "AXTree"]),
+        .testTarget(name: "RomsenTests", dependencies: ["romsen", "AXTree", "SlackAdapter"]),
     ]
 )
