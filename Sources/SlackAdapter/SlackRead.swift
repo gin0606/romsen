@@ -38,6 +38,7 @@ public enum SlackRead {
     public struct Output {
         public let focus: SlackRenderer.Focus?
         public let only: SlackHistory.Pane?
+        public let last: Int?
     }
 
     public static func prepare(_ options: Options, in current: [Node]) throws -> Action {
@@ -59,7 +60,7 @@ public enum SlackRead {
                 return .openThread(root: root, then: request)
             }
         } else {
-            if options.thread || !SlackHistory.hasList(.conversation, in: current) {
+            if options.thread || !SlackInterpreter.hasList(.conversation, in: current, includeUnrecognised: true) {
                 if SlackHistory.hasList(.thread, in: current) {
                     request.pane = .thread
                 } else if options.thread {
@@ -96,6 +97,22 @@ public enum SlackRead {
             }
             focus = .init(row: match, context: options.context)
         }
-        return Output(focus: focus, only: limitToPane || options.last != nil || (options.thread && options.target == nil) ? request.pane : nil)
+        return Output(focus: focus,
+                      only: limitToPane || options.last != nil || (options.thread && options.target == nil) ? request.pane : nil,
+                      last: options.last)
+    }
+}
+
+extension SlackView {
+    func matches(only: SlackHistory.Pane?) -> Bool {
+        only == nil || kind == (only == .thread ? .thread : .conversation)
+    }
+
+    func selectedMessages(focus: SlackRenderer.Focus?, last: Int? = nil) -> [SlackMessage]? {
+        guard let focus else { return last.map { Array(messages.suffix($0)) } ?? messages }
+        guard let index = messages.firstIndex(where: focus.matches) else { return nil }
+        if focus.wholeThread && kind == .thread { return messages }
+        let context = min(focus.context, messages.count)
+        return Array(messages[max(index - context, 0)...min(index + context, messages.count - 1)])
     }
 }

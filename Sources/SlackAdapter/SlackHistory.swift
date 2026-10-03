@@ -65,26 +65,41 @@ public enum SlackHistory {
     /// satisfying `request`. `onTargetRendered` runs once, while the target's row is rendered and
     /// before the list scrolls away from it.
     public static func collect(
-        _ request: Request, driver: Driver, initial: [Node]? = nil,
+        _ request: Request, driver: Driver, initial: [Node]? = nil, observations: [[Node]] = [],
         onTargetRendered: ((_ rowID: String) -> Void)? = nil
     ) throws -> [Node] {
         let start = try initial ?? driver.snapshot()
         var plan = Plan(request, observation: SlackInterpreter.historyObservation(request.pane, in: start),
                         notifyTarget: onTargetRendered != nil)
+        for windows in observations {
+            plan.remember(SlackInterpreter.historyObservation(request.pane, in: windows))
+        }
         try run(&plan, driver: driver, onTargetRendered: onTargetRendered)
-        guard plan.validList else { return start }
         var replaced = false
         return start.map { replaceList(request.pane, in: $0, with: plan.mergedRows, replaced: &replaced) }
     }
 
     /// Opens the root message's reply count, then waits for that thread to appear.
     /// An already open thread is recognised only while its first message is rendered.
-    public static func openThread(root: String, driver: Driver) throws -> Bool {
+    /// `onThreadRead` receives snapshots with the requested root in an open thread, including
+    /// observations made while restoring the conversation after the click.
+    public static func openThread(
+        root: String, driver: Driver, onThreadRead: (([Node]) -> Void)? = nil
+    ) throws -> Bool {
+        var observingDriver = driver
+        observingDriver.snapshot = {
+            let windows = try driver.snapshot()
+            if let onThreadRead,
+               SlackInterpreter.historyObservation(.thread, in: windows).openThreadRoots.contains(root) {
+                onThreadRead(windows)
+            }
+            return windows
+        }
         var request = Request()
         request.target = root
-        var plan = Plan(request, observation: SlackInterpreter.historyObservation(.conversation, in: try driver.snapshot()),
+        var plan = Plan(request, observation: SlackInterpreter.historyObservation(.conversation, in: try observingDriver.snapshot()),
                         openingThread: root)
-        try run(&plan, driver: driver)
+        try run(&plan, driver: observingDriver)
         return plan.threadOpened
     }
 
@@ -97,10 +112,11 @@ public enum SlackHistory {
             switch plan.next(after: observation, succeeded: succeeded) {
             case .observe:
                 observation = SlackInterpreter.historyObservation(plan.request.pane, in: try driver.snapshot())
+                if let observation { plan.retainUnrecognised(observation) }
             case let .scroll(id, change):
                 succeeded = driver.scrollToVisible(id)
                 if succeeded, let change {
-                    observation = try wait(plan.request.pane, driver, for: change)
+                    observation = try wait(plan.request.pane, driver, for: change, observe: { plan.retainUnrecognised($0) })
                 } else {
                     observation = nil
                 }
@@ -117,11 +133,13 @@ public enum SlackHistory {
     }
 
     private static func wait(
-        _ pane: Pane, _ driver: Driver, for change: Change
+        _ pane: Pane, _ driver: Driver, for change: Change,
+        observe: (SlackInterpreter.HistoryObservation) -> Void = { _ in }
     ) throws -> SlackInterpreter.HistoryObservation? {
         for _ in 0..<pollsPerScroll {
             driver.pause()
             let observation = SlackInterpreter.historyObservation(pane, in: try driver.snapshot())
+            observe(observation)
             if change.matches(observation) { return observation }
         }
         return nil
@@ -142,14 +160,14 @@ public enum SlackHistory {
     }
 
     private static func replaceList(_ pane: Pane, in node: Node, with rows: [Node], replaced: inout Bool) -> Node {
-        guard !replaced else { return node }
+        guard !replaced, !SlackInterpreter.isSidebar(node) else { return node }
         var node = node
         let inThread = SlackInterpreter.isThreadView(node)
         if pane == .thread, inThread {
             var done = false
             node.children = node.children.map { replaceFirstList(in: $0, with: rows, replaced: &done) }
             replaced = true
-        } else if pane == .conversation, !inThread, SlackInterpreter.isMessageList(node) {
+        } else if pane == .conversation, !inThread, SlackInterpreter.isCollectionList(node) {
             node.children = rows
             replaced = true
         } else if !inThread {
@@ -159,9 +177,9 @@ public enum SlackHistory {
     }
 
     private static func replaceFirstList(in node: Node, with rows: [Node], replaced: inout Bool) -> Node {
-        guard !replaced else { return node }
+        guard !replaced, !SlackInterpreter.isSidebar(node) else { return node }
         var node = node
-        if SlackInterpreter.isMessageList(node) {
+        if SlackInterpreter.isCollectionList(node) {
             node.children = rows
             replaced = true
         } else {

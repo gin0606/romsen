@@ -30,6 +30,13 @@ struct Slack: ParsableCommand {
             or a link fails if its target is missing. Thread links require the requested thread \
             to be open with its start captured; --thread alone reads the saved open thread.
 
+            Unrecognised view structure or timestamp-shaped message rows produce a warning on \
+            stderr; available text stays on stdout and warnings alone exit 0. Filtered reads omit \
+            text whose pane cannot be identified. Existing errors still fail. Empty known views \
+            and omitted sender/time fields do not trigger warnings. This detects known structural \
+            mismatches, not every missing field or change that removes all row clues. The same \
+            checks apply to live and saved reads; --raw does not warn about structure.
+
             Example: romsen slack --save-snapshot /tmp/screen.json
                      romsen slack --from-snapshot /tmp/screen.json --last 10
             """
@@ -97,7 +104,7 @@ struct Slack: ParsableCommand {
 
     }
 
-    func read(using driver: SlackHistory.Driver) throws -> String {
+    func read(using driver: SlackHistory.Driver, warn: (String) -> Void = { _ in }) throws -> String {
         let options = try SlackRead.Options(link: link, last: last, find: find, context: context, history: history, thread: thread)
         let current = try driver.snapshot()
         if let saveSnapshot {
@@ -115,28 +122,35 @@ struct Slack: ParsableCommand {
 
         let request: SlackHistory.Request
         var initial: [Node]? = current
+        var threadReads: [[Node]] = []
         switch try SlackRead.prepare(options, in: current) {
         case .read(let planned):
             request = planned
         case let .openThread(root, planned):
-            let opened = fromSnapshot != nil
-                ? SlackInterpreter.openThreadRoot(in: current) == root
-                : try SlackHistory.openThread(root: root, driver: driver)
+            let alreadyOpen = SlackInterpreter.openThreadRoot(in: current) == root
+            let opened = alreadyOpen || fromSnapshot != nil
+                ? alreadyOpen : try SlackHistory.openThread(root: root, driver: driver, onThreadRead: { threadReads.append($0) })
             // A saved tree cannot confirm navigation to a different thread.
             let after = opened || fromSnapshot != nil ? [] : try driver.snapshot()
             try SlackRead.afterOpeningThread(root: root, opened: opened, in: after)
             request = planned
-            if fromSnapshot == nil { initial = nil }
+            if fromSnapshot == nil && !alreadyOpen { initial = threadReads.last }
         }
-        let windows = try SlackHistory.collect(request, driver: driver, initial: initial)
+        let windows = try SlackHistory.collect(request, driver: driver, initial: initial, observations: threadReads)
         let output = try SlackRead.output(options, request: request, in: windows,
                                          limitToPane: fromSnapshot != nil && options.target != nil)
-        return SlackRenderer.render(SlackInterpreter.read(windows), focus: output.focus, only: output.only)
+        let screens = SlackInterpreter.read(windows)
+        for diagnostic in SlackInterpreter.diagnostics(screens, focus: output.focus, only: output.only, last: output.last) {
+            warn(diagnostic.rawValue)
+        }
+        return SlackRenderer.render(screens, focus: output.focus, only: output.only, last: output.last)
     }
 
     func run() throws {
         do {
-            print(try read(using: makeDriver()))
+            print(try read(using: makeDriver(), warn: { message in
+                FileHandle.standardError.write(Data("romsen: warning: \(message)\n".utf8))
+            }))
         } catch let error as SlackRead.Failure {
             throw fail(error.description)
         } catch let error as ReaderError {

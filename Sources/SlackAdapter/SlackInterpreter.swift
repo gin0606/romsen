@@ -14,6 +14,7 @@ public struct SlackView: Equatable, Sendable {
     public var messages: [SlackMessage]
     public var draft: String?
     public var plainText: [String]
+    public var unidentifiedRowIDs: [String] = []
 }
 
 public struct SlackMessage: Equatable, Sendable {
@@ -33,6 +34,8 @@ public struct SlackMessage: Equatable, Sendable {
     public var body: [Block]
     public var replies: String?
     public var reactions: [String]
+    public var fallbackText: [String]? = nil
+    public var isFallback = false
 }
 
 /// Interprets Slack's accessibility DOM; unrecognised content falls through as text.
@@ -47,18 +50,103 @@ public enum SlackInterpreter {
     public static func read(_ windows: [Node]) -> [SlackScreen] {
         windows.map { window in
             let workspace = window.first { $0.hasClass("p-client_workspace_wrapper") }?.description
-            let views = window.all { $0.hasClass("p-view_contents") }.compactMap { view -> SlackView? in
-                let rows = view.all(where: isDisplayMessageRow)
-                let sidebar = view.hasClass("p-view_contents--sidebar")
+            let containers = window.all { $0.hasClass("p-view_contents") }
+            var views = containers.compactMap { view -> SlackView? in
+                let rows = view.all { isPagingMessageRow($0) || isDisplayMessageRow($0) || isMessageCandidate($0) }
+                let sidebar = isSidebar(view)
                 if sidebar, rows.isEmpty { return nil }
                 let kind: SlackView.Kind = isThreadView(view) ? .thread
-                    : sidebar ? .search : hasList(.conversation, in: [view]) ? .conversation : .unknown
+                    : sidebar ? .search : list(.conversation, in: [view], includeUnrecognised: true) != nil
+                        || view.hasClass("p-view_contents--primary")
+                        || view.first(where: { $0.role == "AXList" }) != nil ? .conversation : .unknown
                 return SlackView(title: view.description, kind: kind, searchSummary: searchSummary(view),
-                    messages: rows.map(readMessage), draft: draft(in: view),
+                    messages: readMessages(rows), draft: draft(in: view),
                     plainText: rows.isEmpty ? plainText(view) : [])
+            }
+            let remainder = removingViews(from: window)
+            let remainingText = textOutsideViews(window)
+            let hasUncontainedRows = remainder.first {
+                isDisplayMessageRow($0) || isUnrecognisedMessageRow($0)
+            } != nil
+            if containers.isEmpty || hasUncontainedRows {
+                views.append(SlackView(title: nil, kind: .unknown, searchSummary: [], messages: [],
+                    plainText: containers.isEmpty ? plainText(window) : remainingText,
+                    unidentifiedRowIDs: remainder.all(where: isPagingMessageRow).compactMap(\.domID)))
             }
             return SlackScreen(workspace: workspace, views: views)
         }
+    }
+
+    private static func removingViews(from node: Node) -> Node {
+        var remainder = node
+        remainder.children = node.children.filter { !$0.hasClass("p-view_contents") }.map(removingViews)
+        return remainder
+    }
+
+    private static func textOutsideViews(_ node: Node) -> [String] {
+        if node.hasClass("p-view_contents") { return [] }
+        if node.children.isEmpty { return plainText(node) }
+        return node.children.flatMap(textOutsideViews)
+    }
+
+    private static func readMessages(_ rows: [Node]) -> [SlackMessage] {
+        var messages: [SlackMessage] = []
+        for row in rows {
+            if let display = row.first(where: isDisplayMessageRow) {
+                var message = readMessage(display)
+                message.rowID = row.domID ?? message.rowID
+                message.timestamp = row.domID.flatMap(timestamp) ?? message.timestamp
+                messages.append(message)
+            } else if let id = row.domID, let index = messages.lastIndex(where: { $0.rowID == id }) {
+                messages[index].fallbackText = (messages[index].fallbackText ?? []) + plainText(row)
+            } else {
+                messages.append(SlackMessage(rowID: row.domID, timestamp: row.domID.flatMap(timestamp),
+                    location: [], body: [], reactions: [], fallbackText: plainText(row), isFallback: true))
+            }
+        }
+        return messages
+    }
+
+    public enum Diagnostic: String, Sendable {
+        case unknownStructure = "Slack view or message structure was not recognised; output may be incomplete. Available text is included where the requested scope can be identified."
+        case unidentifiedPane = "The requested Slack pane could not be identified; output may be incomplete. Unidentified text was omitted."
+    }
+
+    public static func diagnostics(
+        _ screens: [SlackScreen], focus: SlackRenderer.Focus? = nil, only: SlackHistory.Pane? = nil, last: Int? = nil
+    ) -> [Diagnostic] {
+        let views = screens.flatMap(\.views)
+        let selected = views.filter { $0.matches(only: only) }
+        var result: [Diagnostic] = []
+        if selected.contains(where: { view in
+            guard let rows = view.selectedMessages(focus: focus, last: last) else { return false }
+            return view.kind == .unknown || rows.contains { $0.fallbackText != nil }
+        }) {
+            result.append(.unknownStructure)
+        }
+        let omittedTarget = focus.map { focus in
+            if only != nil, selected.contains(where: { $0.selectedMessages(focus: focus) != nil }) { return false }
+            return views.contains { view in
+                view.unidentifiedRowIDs.contains { $0 == focus.row || timestamp($0) == focus.row }
+            }
+        } ?? false
+        if omittedTarget || (only != nil && selected.isEmpty && views.contains(where: { $0.kind == .unknown })) {
+            result.append(.unidentifiedPane)
+        }
+        return result
+    }
+
+    /// Timestamp-shaped message IDs survive some class changes. Date dividers and composers
+    /// share the prefix, so neither the prefix nor an empty message body is enough evidence.
+    static func isMessageCandidate(_ node: Node) -> Bool {
+        guard let id = node.domID, id.hasPrefix(rowIDPrefix), let suffix = timestamp(id) else { return false }
+        let parts = suffix.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 2 && parts[0].count == 10 && parts[1].count == 6
+            && parts.allSatisfy { $0.utf8.allSatisfy { (48...57).contains($0) } }
+    }
+
+    static func isUnrecognisedMessageRow(_ node: Node) -> Bool {
+        isMessageCandidate(node) && node.first(where: isDisplayMessageRow) == nil
     }
 
     private static func readMessage(_ row: Node) -> SlackMessage {
@@ -134,12 +222,29 @@ public enum SlackInterpreter {
         return root.domID.flatMap(timestamp)
     }
 
-    public static func hasList(_ pane: SlackHistory.Pane, in windows: [Node]) -> Bool { list(pane, in: windows) != nil }
+    public static func hasList(_ pane: SlackHistory.Pane, in windows: [Node], includeUnrecognised: Bool = false) -> Bool {
+        list(pane, in: windows, includeUnrecognised: includeUnrecognised) != nil
+    }
 
-    static func list(_ pane: SlackHistory.Pane, in windows: [Node]) -> Node? {
+    static func isSidebar(_ node: Node) -> Bool { node.hasClass("p-view_contents--sidebar") }
+
+    static func isCollectionList(_ node: Node) -> Bool {
+        if isMessageList(node) || node.children.contains(where: isMessageCandidate) { return true }
+        return node.children.lazy.filter(containsCollectionRow).prefix(2).count == 2
+    }
+
+    private static func containsCollectionRow(_ node: Node) -> Bool {
+        if node.hasClass("p-view_contents") || isThreadView(node) || isSidebar(node) { return false }
+        return isPagingMessageRow(node) || isDisplayMessageRow(node) || isMessageCandidate(node)
+            || node.children.contains(where: containsCollectionRow)
+    }
+
+    static func list(_ pane: SlackHistory.Pane, in windows: [Node], includeUnrecognised: Bool = false) -> Node? {
+        let matches = includeUnrecognised ? isCollectionList : isMessageList
         func find(_ node: Node) -> Node? {
-            if isThreadView(node) { return pane == .thread ? node.first(where: isMessageList) : nil }
-            if pane == .conversation, isMessageList(node) { return node }
+            if isSidebar(node) { return nil }
+            if isThreadView(node) { return pane == .thread ? node.first(where: matches) : nil }
+            if pane == .conversation, matches(node) { return node }
             for child in node.children { if let hit = find(child) { return hit } }
             return nil
         }
@@ -154,10 +259,13 @@ public enum SlackInterpreter {
     }
 
     static func historyObservation(_ pane: SlackHistory.Pane, in windows: [Node]) -> HistoryObservation {
-        let list = list(pane, in: windows)
+        let list = list(pane, in: windows, includeUnrecognised: true)
         let roots = windows.flatMap { $0.all(where: isThreadView) }
             .flatMap { $0.all(where: isPagingMessageRow) }.compactMap { $0.domID.flatMap(timestamp) }
-        return HistoryObservation(rows: list?.children.filter(isPagingMessageRow) ?? [],
+        let rows = list?.children.flatMap { child in
+            child.all { isPagingMessageRow($0) || isDisplayMessageRow($0) || isMessageCandidate($0) }
+        } ?? []
+        return HistoryObservation(rows: rows,
                                   atThreadStart: list?.children.contains(where: isThreadStart) == true,
                                   openThreadRoots: Set(roots))
     }

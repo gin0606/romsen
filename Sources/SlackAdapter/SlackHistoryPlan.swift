@@ -34,6 +34,7 @@ extension SlackHistory {
         private let targetIsNewer: Bool
         private var rows: [Node]
         private var collected: [String: Node] = [:]
+        private var unrecognised: [String: Node] = [:]
         private var extraPages: Int
         private var scrollsLeft: Int
         private var scrollsUp = 0
@@ -64,6 +65,7 @@ extension SlackHistory {
             extraPages = request.olderPages
             scrollsLeft = request.scrollLimit
             threadOpened = openingThread.map { observation.openThreadRoots.contains($0) } ?? false
+            retainUnrecognised(observation)
             keep(rows)
             if validList, let oldest = rows.first?.domID {
                 // Searching backwards includes one page before the match for context.
@@ -77,8 +79,24 @@ extension SlackHistory {
         }
 
         var mergedRows: [Node] {
-            let merged = collected.keys.sorted(by: SlackInterpreter.rowPrecedes).compactMap { collected[$0] }
-            return request.last.map { Array(merged.suffix($0)) } ?? merged
+            let ids = Set(collected.keys).union(unrecognised.keys).sorted(by: SlackInterpreter.rowPrecedes)
+            let selected = request.last.map { Array(ids.suffix($0)) } ?? ids
+            var merged = selected.flatMap { id -> [Node] in
+                guard let row = collected[id] else { return unrecognised[id].map { [$0] } ?? [] }
+                if let unknown = unrecognised[id], !SlackInterpreter.isUnrecognisedMessageRow(row) {
+                    return [row, unknown]
+                }
+                return [unrecognised[id] ?? row]
+            }
+            // Rows without IDs cannot drive scrolling, but their text is still readable.
+            for (index, row) in rows.enumerated() where row.domID == nil {
+                let following = rows.dropFirst(index + 1).compactMap(\.domID)
+                let position = merged.firstIndex { candidate in
+                    candidate.domID.map { following.contains($0) } ?? false
+                } ?? merged.endIndex
+                merged.insert(row, at: position)
+            }
+            return merged
         }
 
         mutating func next(after observation: SlackInterpreter.HistoryObservation? = nil,
@@ -166,15 +184,44 @@ extension SlackHistory {
             if let targetID, collected[targetID] == nil, SlackInterpreter.rowPrecedes(targetID, oldest) { return true }
             if request.whole { return true }
             if let last = request.last, collected.count < last { return true }
-            if let text = request.containing, !collected.values.contains(where: { contains($0, text: text) }) { return true }
+            if let text = request.containing,
+               !collected.values.contains(where: { SlackInterpreter.isPagingMessageRow($0) && contains($0, text: text) }) {
+                return true
+            }
             return false
+        }
+
+        mutating func remember(_ observation: SlackInterpreter.HistoryObservation) {
+            retainUnrecognised(observation)
+            keep(observation.rows)
+        }
+
+        mutating func retainUnrecognised(_ observation: SlackInterpreter.HistoryObservation) {
+            for row in observation.rows where SlackInterpreter.isUnrecognisedMessageRow(row) {
+                guard let id = row.domID else { continue }
+                guard let existing = unrecognised[id] else {
+                    unrecognised[id] = row
+                    continue
+                }
+                let previous = SlackInterpreter.plainText(existing)
+                let additions = SlackInterpreter.plainText(row).filter { !previous.contains($0) }
+                if additions.isEmpty { continue }
+                unrecognised[id] = Node(role: "AXGroup", domID: id, domClasses: row.domClasses,
+                    children: (previous + additions).map { Node(role: "AXStaticText", value: $0) })
+            }
         }
 
         private mutating func keep(_ rows: [Node]) {
             for row in rows {
                 guard let id = row.domID else { continue }
-                // Preserve usable on-screen geometry when a later observation clips the same row.
-                if let existing = collected[id], SlackInterpreter.isOnScreen(existing), !SlackInterpreter.isOnScreen(row) { continue }
+                if let existing = collected[id] {
+                    let wasUnknown = SlackInterpreter.isUnrecognisedMessageRow(existing)
+                    let isUnknown = SlackInterpreter.isUnrecognisedMessageRow(row)
+                    if !wasUnknown && isUnknown { continue }
+                    // Geometry only breaks ties between equally interpretable versions.
+                    if wasUnknown == isUnknown, SlackInterpreter.isOnScreen(existing),
+                       !SlackInterpreter.isOnScreen(row) { continue }
+                }
                 collected[id] = row
             }
         }

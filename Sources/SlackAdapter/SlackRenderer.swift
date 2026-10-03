@@ -23,21 +23,14 @@ public enum SlackRenderer {
     }
 
     public static func render(
-        _ screens: [SlackScreen], focus: Focus? = nil, only: SlackHistory.Pane? = nil, timeZone: TimeZone = .current
+        _ screens: [SlackScreen], focus: Focus? = nil, only: SlackHistory.Pane? = nil,
+        last: Int? = nil, timeZone: TimeZone = .current
     ) -> String {
         var lines: [String] = []
         for screen in screens {
             lines.append("# Slack" + (screen.workspace.map { ": \($0)" } ?? ""))
             for view in screen.views {
-                var rows = view.messages
-                if let only, view.kind != (only == .thread ? .thread : .conversation) { continue }
-                if let focus {
-                    guard let index = rows.firstIndex(where: focus.matches) else { continue }
-                    if !(focus.wholeThread && view.kind == .thread) {
-                        let context = min(focus.context, rows.count)
-                        rows = Array(rows[max(index - context, 0)...min(index + context, rows.count - 1)])
-                    }
-                }
+                guard view.matches(only: only), let rows = view.selectedMessages(focus: focus, last: last) else { continue }
                 lines.append("")
                 lines.append("## " + (view.title ?? "(untitled view)"))
                 lines.append(contentsOf: view.searchSummary)
@@ -64,6 +57,10 @@ public enum SlackRenderer {
         var lines: [String] = []
         var lastSender: String?
         for message in rows {
+            if message.isFallback, let fallback = message.fallbackText {
+                lines.append(contentsOf: fallback)
+                continue
+            }
             // Resolve omitted senders after filtering, using only the rows being printed.
             let sender = message.sender ?? lastSender ?? message.labelledSender ?? "?"
             lastSender = sender
@@ -77,6 +74,7 @@ public enum SlackRenderer {
                 lines.append("  reactions: " + message.reactions.joined(separator: ", "))
             }
             if let replies = message.replies { lines.append("  thread: \(replies)") }
+            lines.append(contentsOf: message.fallbackText ?? [])
         }
         return lines
     }
