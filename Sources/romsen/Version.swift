@@ -1,3 +1,3 @@
-// The committed value marks a development build. scripts/build-release replaces it with the
-// release version for the duration of a release build and restores it afterwards.
+// The committed value marks a development build. Release builds in GitHub Actions rewrite it
+// to the release version with sed just before building.
 let romsenVersion = "0.0.0-dev"

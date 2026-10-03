@@ -2,7 +2,7 @@ import Testing
 
 @testable import romsen
 
-// Release builds stamp the version only while scripts/build-release runs, so the committed
+// Release builds rewrite the version only in their throwaway checkout, so the committed
 // source must always report the development value.
 @Test func versionFlagPrintsTheCommittedDevelopmentVersion() {
     do {
