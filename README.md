@@ -53,3 +53,7 @@ Working assumptions, not fixed rules.
   does not switch conversations or workspaces.
 - **Read-only.** It scrolls and opens threads. It never types or presses anything that could
   send or change a message.
+
+## License
+
+[MIT](LICENSE)
