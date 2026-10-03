@@ -5,14 +5,23 @@
 Prints what the Slack desktop app is showing as text for an agent, read through the macOS
 Accessibility API. Named after ROM専: reads, never posts.
 
-```
-swift build -c release
-.build/release/romsen slack --help
+## Install
+
+```sh
+brew install gin0606/tap/romsen
+romsen slack --help
 ```
 
-The launching app (terminal or agent host) needs the Accessibility permission.
+The Homebrew formula installs a prebuilt binary for macOS 13 or later on Apple silicon.
 
+To build from source instead, run `swift build -c release` and use `.build/release/romsen`.
 `romsen --version` prints `0.0.0-dev` unless built by the release workflow.
+
+## Accessibility permission
+
+romsen reads Slack through the macOS Accessibility API. The permission belongs to the app that
+launches romsen, such as your terminal or agent host, not to romsen itself. Allow that app in
+System Settings > Privacy & Security > Accessibility.
 
 ## Compare output from the same screen
 

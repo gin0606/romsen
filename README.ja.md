@@ -5,14 +5,23 @@
 Slack デスクトップアプリの表示内容を、macOS の Accessibility API 経由で読み、エージェント向けのテキストとして出力します。
 名前は「ROM専」(読むだけで書き込まない) から。
 
-```
-swift build -c release
-.build/release/romsen slack --help
+## 導入
+
+```sh
+brew install gin0606/tap/romsen
+romsen slack --help
 ```
 
-起動元のアプリ (ターミナルやエージェントのホスト) にアクセシビリティの権限が必要です。
+Homebrew の formula は、Apple silicon の macOS 13 以降向けのビルド済みバイナリを入れます。
 
+ソースからビルドする場合は `swift build -c release` を実行し、`.build/release/romsen` を使います。
 `romsen --version` は、リリースのワークフローでビルドしたもの以外では `0.0.0-dev` を表示します。
+
+## アクセシビリティの権限
+
+romsen は macOS の Accessibility API で Slack を読みます。権限は romsen 自身ではなく、romsen を起動するアプリ
+(ターミナルやエージェントのホスト) に付きます。システム設定 > プライバシーとセキュリティ > アクセシビリティ で
+そのアプリを許可してください。
 
 ## 同じ画面からの出力を比較する
 
