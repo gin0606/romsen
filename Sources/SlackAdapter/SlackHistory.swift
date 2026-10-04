@@ -38,7 +38,7 @@ package enum SlackHistory {
         }
     }
 
-    /// Where the observed tree comes from. A saved tree cannot be scrolled, clicked, or observed again.
+    /// Saved input is read once per operation and never navigated or polled for changes.
     package enum Source: Sendable {
         case live, saved
     }
@@ -78,6 +78,7 @@ package enum SlackHistory {
         onTargetRendered: ((_ rowID: String) -> Void)? = nil
     ) throws -> [Node] {
         let start = try initial ?? driver.snapshot()
+        if driver.source == .saved { return start }
         var plan = Plan(request, observation: SlackInterpreter.historyObservation(request.pane, in: start),
                         notifyTarget: onTargetRendered != nil)
         for windows in observations {
@@ -95,6 +96,9 @@ package enum SlackHistory {
     package static func openThread(
         root: String, driver: Driver, onThreadRead: (([Node]) -> Void)? = nil
     ) throws -> Bool {
+        if driver.source == .saved {
+            return SlackInterpreter.openThreadRoot(in: try driver.snapshot()) == root
+        }
         var observingDriver = driver
         observingDriver.snapshot = {
             let windows = try driver.snapshot()

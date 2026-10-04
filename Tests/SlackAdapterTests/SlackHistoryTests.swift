@@ -363,3 +363,34 @@ func waitsForTheRequestedThreadEvenWhileAnotherThreadIsOpen(appears: Bool) throw
     #expect(ids(windows) == Array(slack.ids[7..<30]))
     #expect(slack.visible == 25..<30)
 }
+
+@Test func savedHistoryNeverInvokesNavigationOrAdditionalObservation() throws {
+    let windows = try FakeSlack(count: 10, visible: 3..<6).driver.snapshot()
+    let driver = SlackHistory.Driver(
+        snapshot: { Issue.record("Saved collection already has its snapshot"); return windows },
+        scrollToVisible: { _ in Issue.record("Saved history must not scroll"); return true },
+        pause: { Issue.record("Saved history must not wait") },
+        press: { _, _ in Issue.record("Saved history must not click"); return true }, source: .saved)
+    var whole = request()
+    whole.whole = true
+    for request in [request(olderPages: 10), request(last: 100), request(containing: "missing"),
+                    request(target: "1700000000.000000"), whole] {
+        let result = try SlackHistory.collect(request, driver: driver, initial: windows,
+            onTargetRendered: { _ in Issue.record("Saved collection must not invoke live callbacks") })
+        #expect(result == windows)
+    }
+}
+
+@Test func savedThreadOpeningOnlyRecognisesTheCapturedRoot() throws {
+    let slack = FakeSlack(count: 2, visible: 0..<2)
+    slack.pane = .thread
+    let windows = try slack.driver.snapshot()
+    var reads = 0
+    let driver = SlackHistory.Driver(snapshot: { reads += 1; return windows },
+        scrollToVisible: { _ in Issue.record("Saved thread must not scroll"); return true },
+        pause: { Issue.record("Saved thread must not wait") },
+        press: { _, _ in Issue.record("Saved thread must not click"); return true }, source: .saved)
+    #expect(try SlackHistory.openThread(root: "1700000000.000000", driver: driver))
+    #expect(try !SlackHistory.openThread(root: "1700000009.000000", driver: driver))
+    #expect(reads == 2)
+}
