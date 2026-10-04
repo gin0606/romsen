@@ -1,53 +1,53 @@
 import AXTree
 import Foundation
 
-public struct SlackScreen: Equatable, Sendable {
-    public var workspace: String?
-    public var views: [SlackView]
+package struct SlackScreen: Equatable, Sendable {
+    package var workspace: String?
+    package var views: [SlackView]
 }
 
-public struct SlackView: Equatable, Sendable {
-    public enum Kind: Sendable { case conversation, thread, search, unknown }
-    public var title: String?
-    public var kind: Kind
-    public var searchSummary: [String]
-    public var messages: [SlackMessage]
-    public var draft: String?
-    public var plainText: [String]
-    public var unidentifiedRowIDs: [String] = []
+package struct SlackView: Equatable, Sendable {
+    package enum Kind: Sendable { case conversation, thread, search, unknown }
+    package var title: String?
+    package var kind: Kind
+    package var searchSummary: [String]
+    package var messages: [SlackMessage]
+    package var draft: String?
+    package var plainText: [String]
+    package var unidentifiedRowIDs: [String] = []
 }
 
-public struct SlackMessage: Equatable, Sendable {
-    public enum Inline: Equatable, Sendable {
+package struct SlackMessage: Equatable, Sendable {
+    package enum Inline: Equatable, Sendable {
         case text(String), button(String), threadOrigin(String)
     }
-    public indirect enum Block: Equatable, Sendable {
+    package indirect enum Block: Equatable, Sendable {
         case paragraph([Inline]), quote([Block]), file(String)
     }
-    public var rowID: String?
-    public var timestamp: String?
-    public var sentDate: Date?
-    public var timeLabel: String?
-    public var sender: String?
-    public var labelledSender: String?
-    public var location: [Block]
-    public var body: [Block]
-    public var replies: String?
-    public var reactions: [String]
-    public var fallbackText: [String]? = nil
-    public var isFallback = false
+    package var rowID: String?
+    package var timestamp: String?
+    package var sentDate: Date?
+    package var timeLabel: String?
+    package var sender: String?
+    package var labelledSender: String?
+    package var location: [Block]
+    package var body: [Block]
+    package var replies: String?
+    package var reactions: [String]
+    package var fallbackText: [String]? = nil
+    package var isFallback = false
 }
 
 /// Interprets Slack's accessibility DOM; unrecognised content falls through as text.
 /// Conversation rows end in `message-list_<seconds>.<micros>`; date dividers instead end in
 /// `<milliseconds>.<conversation id>`. Thread rows end in `Thread_<timestamp>` and use the
 /// same list prefix for separators and the input. Only the final timestamp identifies a message.
-public enum SlackInterpreter {
-    public static let bundleID = "com.tinyspeck.slackmacgap"
+package enum SlackInterpreter {
+    package static let bundleID = "com.tinyspeck.slackmacgap"
     static let replyCountClass = "c-message__reply_count"
     private static let rowIDPrefix = "message-list_"
 
-    public static func read(_ windows: [Node]) -> [SlackScreen] {
+    package static func read(_ windows: [Node]) -> [SlackScreen] {
         windows.map { window in
             let workspace = window.first { $0.hasClass("p-client_workspace_wrapper") }?.description
             let containers = window.all { $0.hasClass("p-view_contents") }
@@ -107,12 +107,12 @@ public enum SlackInterpreter {
         return messages
     }
 
-    public enum Diagnostic: String, Sendable {
+    package enum Diagnostic: String, Sendable {
         case unknownStructure = "Slack view or message structure was not recognised; output may be incomplete. Available text is included where the requested scope can be identified."
         case unidentifiedPane = "The requested Slack pane could not be identified; output may be incomplete. Unidentified text was omitted."
     }
 
-    public static func diagnostics(
+    package static func diagnostics(
         _ screens: [SlackScreen], focus: SlackRenderer.Focus? = nil, only: SlackHistory.Pane? = nil, last: Int? = nil
     ) -> [Diagnostic] {
         let views = screens.flatMap(\.views)
@@ -204,7 +204,7 @@ public enum SlackInterpreter {
         row.domID?.hasSuffix("_" + timestamp) == true
     }
 
-    public static func openChannelID(_ windows: [Node]) -> String? {
+    package static func openChannelID(_ windows: [Node]) -> String? {
         for window in windows {
             guard let list = window.first(where: isMessageList) else { continue }
             for row in list.children {
@@ -218,14 +218,14 @@ public enum SlackInterpreter {
     }
 
     /// Identifies the open thread only when its root and reply separator are captured.
-    public static func openThreadRoot(in windows: [Node]) -> String? {
+    package static func openThreadRoot(in windows: [Node]) -> String? {
         guard let list = list(.thread, in: windows),
               let separator = list.children.firstIndex(where: isThreadStart),
               let root = list.children[..<separator].first(where: isPagingMessageRow) else { return nil }
         return root.domID.flatMap(timestamp)
     }
 
-    public static func hasList(_ pane: SlackHistory.Pane, in windows: [Node], includeUnrecognised: Bool = false) -> Bool {
+    package static func hasList(_ pane: SlackHistory.Pane, in windows: [Node], includeUnrecognised: Bool = false) -> Bool {
         list(pane, in: windows, includeUnrecognised: includeUnrecognised) != nil
     }
 

@@ -65,7 +65,7 @@ jobs:
           repositories: homebrew-tap
 
       - name: Test
-        run: swift test
+        run: swift test --explicit-target-dependency-import-check error
 
       # The checkout is thrown away after the job, so the rewritten version source is not restored.
       - name: Build and package

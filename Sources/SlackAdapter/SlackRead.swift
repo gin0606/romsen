@@ -1,20 +1,20 @@
 import AXTree
 
 /// Pure decisions between observing Slack, opening a thread, reading, and formatting.
-public enum SlackRead {
-    public struct Failure: Error, CustomStringConvertible {
-        public let description: String
+package enum SlackRead {
+    package struct Failure: Error, CustomStringConvertible {
+        package let description: String
     }
 
-    public struct Options {
-        public let target: SlackLink?
-        public let last: Int?
-        public let find: String?
-        public let context: Int
-        public let history: Int
-        public let thread: Bool
+    package struct Options {
+        package let target: SlackLink?
+        package let last: Int?
+        package let find: String?
+        package let context: Int
+        package let history: Int
+        package let thread: Bool
 
-        public init(link: String? = nil, last: Int? = nil, find: String? = nil,
+        package init(link: String? = nil, last: Int? = nil, find: String? = nil,
                     context: Int = 5, history: Int = 0, thread: Bool = false) throws {
             if let link {
                 guard let parsed = SlackLink(link) else { throw Failure(description: "not a Slack message link: \(link)") }
@@ -30,18 +30,18 @@ public enum SlackRead {
         }
     }
 
-    public enum Action {
+    package enum Action {
         case read(SlackHistory.Request)
         case openThread(root: String, then: SlackHistory.Request)
     }
 
-    public struct Output {
-        public let focus: SlackRenderer.Focus?
-        public let only: SlackHistory.Pane?
-        public let last: Int?
+    package struct Output {
+        package let focus: SlackRenderer.Focus?
+        package let only: SlackHistory.Pane?
+        package let last: Int?
     }
 
-    public static func prepare(_ options: Options, in current: [Node]) throws -> Action {
+    package static func prepare(_ options: Options, in current: [Node]) throws -> Action {
         var request = SlackHistory.Request()
         request.olderPages = options.history
         request.last = options.last
@@ -73,18 +73,18 @@ public enum SlackRead {
     }
 
     /// How to reach the thread of `root` before reading it.
-    public struct ThreadOpening: Equatable, Sendable {
+    package struct ThreadOpening: Equatable, Sendable {
         /// The thread is open in the current tree, so it counts as opened without a click.
-        public let alreadyOpen: Bool
+        package let alreadyOpen: Bool
         /// Click the root's reply control to open the thread.
-        public let press: Bool
+        package let press: Bool
         /// When the click cannot confirm the thread, observe again to check for an open thread.
-        public let rereadIfUnconfirmed: Bool
+        package let rereadIfUnconfirmed: Bool
         /// Start collecting from the last thread observed while opening instead of the current tree.
-        public let startFromThreadRead: Bool
+        package let startFromThreadRead: Bool
     }
 
-    public static func openingThread(root: String, in current: [Node], source: SlackHistory.Source) -> ThreadOpening {
+    package static func openingThread(root: String, in current: [Node], source: SlackHistory.Source) -> ThreadOpening {
         let alreadyOpen = SlackInterpreter.openThreadRoot(in: current) == root
         // A saved tree cannot confirm navigation to a different thread.
         let press = !alreadyOpen && source == .live
@@ -92,14 +92,14 @@ public enum SlackRead {
                              rereadIfUnconfirmed: source == .live, startFromThreadRead: press)
     }
 
-    public static func afterOpeningThread(root: String, opened: Bool, in current: [Node]) throws {
+    package static func afterOpeningThread(root: String, opened: Bool, in current: [Node]) throws {
         // A long open thread may have scrolled its root out of the rendered rows.
         guard opened || SlackHistory.hasList(.thread, in: current) else {
             throw Failure(description: "could not open the thread of message \(root) in the open conversation.")
         }
     }
 
-    public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node]) throws -> Output {
+    package static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node]) throws -> Output {
         var focus: SlackRenderer.Focus?
         if let target = options.target {
             // Another pane may show a copy of the target, such as an open thread's root; never substitute it.

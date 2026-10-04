@@ -35,7 +35,7 @@ jobs:
           swift --version
 
       - name: Test
-        run: swift test
+        run: swift test --explicit-target-dependency-import-check error
 
       # swift test does not go through the release version stamping. Exercising it here
       # catches a broken stamping path before a release tag is pushed. The checkout is thrown

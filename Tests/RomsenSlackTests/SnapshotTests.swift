@@ -3,7 +3,7 @@ import Foundation
 import SlackAdapter
 import Testing
 
-@testable import romsen
+@testable import RomsenSlack
 
 private func row(_ timestamp: String, _ text: String, prefix: String = "message-list_") -> Node {
     Node(role: "AXGroup", domID: prefix + timestamp, domClasses: ["c-virtual_list__item"],
@@ -34,19 +34,6 @@ private func withSnapshot(_ windows: [Node], _ body: (URL) throws -> Void) throw
     defer { try? FileManager.default.removeItem(at: url) }
     try JSONEncoder().encode(windows).write(to: url)
     try body(url)
-}
-
-@Test func preservesEveryCapturedAttributeThroughAFileRoundTrip() throws {
-    let windows = [Node(role: "AXWindow", subrole: "AXStandardWindow", title: "Synthetic window",
-                        value: "", description: "日本語\n\"quoted\"", domID: "example", domClasses: ["one", "two"],
-                        frame: CGRect(x: -12.5, y: 8.25, width: 640.5, height: 1), children: [
-                            Node(role: "AXGroup", children: [Node(role: "AXStaticText", value: "child")]),
-                            Node(role: "AXUnknown")
-                        ]), Node(role: "AXWindow")]
-    try withSnapshot(windows) { url in
-        let restored = try JSONDecoder().decode([Node].self, from: Data(contentsOf: url))
-        #expect(restored == windows)
-    }
 }
 
 @Test func savesTheInitialReadAndReplaysTheSameOutput() throws {

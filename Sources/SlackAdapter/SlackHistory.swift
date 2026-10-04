@@ -10,20 +10,20 @@ import AXTree
 /// - Scrolling back down ends with the newest message visible. If the list was scrolled part
 ///   of the way up beforehand, that position is not restored.
 /// - Scrolling does not change what Slack considers read.
-public enum SlackHistory {
+package enum SlackHistory {
     /// The side effects are injected so the paging logic does not depend on a running Slack.
-    public struct Driver {
-        public var snapshot: () throws -> [Node]
+    package struct Driver {
+        package var snapshot: () throws -> [Node]
         /// Scrolls the element with this DOM id into view. Returns false if it no longer exists.
-        public var scrollToVisible: (String) -> Bool
+        package var scrollToVisible: (String) -> Bool
         /// Gives Slack time to render after a scroll.
-        public var pause: () -> Void
+        package var pause: () -> Void
         /// Clicks the element with the given class inside the element with the given DOM id.
-        public var press: (_ domID: String, _ descendantClass: String) -> Bool
+        package var press: (_ domID: String, _ descendantClass: String) -> Bool
         /// Whether `snapshot` observes Slack or replays a saved tree.
-        public var source: Source
+        package var source: Source
 
-        public init(
+        package init(
             snapshot: @escaping () throws -> [Node],
             scrollToVisible: @escaping (String) -> Bool,
             pause: @escaping () -> Void,
@@ -39,33 +39,33 @@ public enum SlackHistory {
     }
 
     /// Where the observed tree comes from. A saved tree cannot be scrolled, clicked, or observed again.
-    public enum Source: Sendable {
+    package enum Source: Sendable {
         case live, saved
     }
 
     /// The two message lists Slack can show side by side.
-    public enum Pane: Sendable {
+    package enum Pane: Sendable {
         case conversation, thread
     }
 
     /// What to read from one pane. Each condition scrolls only as far as it needs to; with none
     /// set, nothing scrolls.
-    public struct Request {
-        public var pane = Pane.conversation
+    package struct Request {
+        package var pane = Pane.conversation
         /// Extra scrolls toward older messages, on top of whatever the conditions below need.
-        public var olderPages = 0
+        package var olderPages = 0
         /// A message timestamp to bring into view, whether it is older or newer than what is rendered.
-        public var target: String?
+        package var target: String?
         /// Read at least this many of the newest messages, and return only those.
-        public var last: Int?
+        package var last: Int?
         /// Read back until a message containing this text has been seen.
-        public var containing: String?
+        package var containing: String?
         /// Read back to the first message.
-        public var whole = false
+        package var whole = false
         /// The most scrolls to spend satisfying the conditions.
-        public var scrollLimit = 100
+        package var scrollLimit = 100
 
-        public init() {}
+        package init() {}
     }
 
     private static let pollsPerScroll = 10
@@ -73,7 +73,7 @@ public enum SlackHistory {
     /// Returns the current windows with the pane's message list replaced by every row seen while
     /// satisfying `request`. `onTargetRendered` runs once, while the target's row is rendered and
     /// before the list scrolls away from it.
-    public static func collect(
+    package static func collect(
         _ request: Request, driver: Driver, initial: [Node]? = nil, observations: [[Node]] = [],
         onTargetRendered: ((_ rowID: String) -> Void)? = nil
     ) throws -> [Node] {
@@ -92,7 +92,7 @@ public enum SlackHistory {
     /// An already open thread is recognised only while its first message is rendered.
     /// `onThreadRead` receives snapshots with the requested root in an open thread, including
     /// observations made while restoring the conversation after the click.
-    public static func openThread(
+    package static func openThread(
         root: String, driver: Driver, onThreadRead: (([Node]) -> Void)? = nil
     ) throws -> Bool {
         var observingDriver = driver
@@ -154,17 +154,17 @@ public enum SlackHistory {
         return nil
     }
 
-    public static func hasList(_ pane: Pane, in windows: [Node]) -> Bool {
+    package static func hasList(_ pane: Pane, in windows: [Node]) -> Bool {
         SlackInterpreter.list(pane, in: windows) != nil
     }
 
     /// The rows of the pane's message list, oldest first.
-    public static func messageRows(_ pane: Pane, in windows: [Node]) -> [Node] {
+    package static func messageRows(_ pane: Pane, in windows: [Node]) -> [Node] {
         SlackInterpreter.list(pane, in: windows)?.children.filter(SlackInterpreter.isPagingMessageRow) ?? []
     }
 
     /// Whether the message's visible text contains `text`, ignoring case.
-    public static func contains(_ row: Node, text: String) -> Bool {
+    package static func contains(_ row: Node, text: String) -> Bool {
         SlackInterpreter.plainText(row).joined(separator: " ").localizedCaseInsensitiveContains(text)
     }
 

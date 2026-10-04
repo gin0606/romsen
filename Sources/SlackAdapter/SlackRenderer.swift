@@ -1,17 +1,17 @@
 import Foundation
 
 /// Formats interpreted Slack views without reading the accessibility tree.
-public enum SlackRenderer {
-    public struct Focus: Equatable, Sendable {
-        public var row: String
-        public var context: Int
-        public var wholeThread: Bool
+package enum SlackRenderer {
+    package struct Focus: Equatable, Sendable {
+        package var row: String
+        package var context: Int
+        package var wholeThread: Bool
 
-        public init(timestamp: String, context: Int, wholeThread: Bool = false) {
+        package init(timestamp: String, context: Int, wholeThread: Bool = false) {
             self.init(row: timestamp, context: context, wholeThread: wholeThread)
         }
 
-        public init(row: String, context: Int, wholeThread: Bool = false) {
+        package init(row: String, context: Int, wholeThread: Bool = false) {
             self.row = row
             self.context = context
             self.wholeThread = wholeThread
@@ -22,7 +22,7 @@ public enum SlackRenderer {
         }
     }
 
-    public static func render(
+    package static func render(
         _ screens: [SlackScreen], focus: Focus? = nil, only: SlackHistory.Pane? = nil,
         last: Int? = nil, timeZone: TimeZone = .current
     ) -> String {

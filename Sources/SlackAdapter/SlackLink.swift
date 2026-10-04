@@ -1,14 +1,14 @@
 import Foundation
 
 /// A link to one Slack message: `https://<workspace>.slack.com/archives/<channel>/p<timestamp digits>`.
-public struct SlackLink: Equatable, Sendable {
-    public var channelID: String
+package struct SlackLink: Equatable, Sendable {
+    package var channelID: String
     /// Slack's message timestamp, such as `1700000000.000100`.
-    public var timestamp: String
+    package var timestamp: String
     /// The timestamp of the thread's first message, when the link points into a thread.
-    public var threadTimestamp: String?
+    package var threadTimestamp: String?
 
-    public init?(_ text: String) {
+    package init?(_ text: String) {
         guard let url = URL(string: text), url.host?.hasSuffix(".slack.com") == true else { return nil }
         let parts = url.pathComponents
         guard parts.count == 4, parts[1] == "archives", parts[3].hasPrefix("p") else { return nil }

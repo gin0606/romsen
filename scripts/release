@@ -45,7 +45,7 @@ if [ "$remote_tag_status" -ne 2 ]; then
   exit "$remote_tag_status"
 fi
 
-swift test
+swift test --explicit-target-dependency-import-check error
 
 # A local tag left by an earlier attempt whose push failed is reused.
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then

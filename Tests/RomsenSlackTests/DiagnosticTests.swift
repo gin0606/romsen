@@ -3,7 +3,7 @@ import Foundation
 import SlackAdapter
 import Testing
 
-@testable import romsen
+@testable import RomsenSlack
 
 private func diagnosticRow(_ number: Int, unknown: Bool = false, prefix: String = "message-list_") -> Node {
     Node(role: "AXGroup", domID: prefix + "17000000\(String(format: "%02d", number)).000100",
