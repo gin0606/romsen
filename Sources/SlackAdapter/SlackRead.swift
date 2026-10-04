@@ -99,17 +99,13 @@ public enum SlackRead {
         }
     }
 
-    public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node],
-                              source: SlackHistory.Source = .live) throws -> Output {
-        // A saved tree may hold the target in another pane that the requested one never replaced.
-        let limitToPane = source == .saved && options.target != nil
+    public static func output(_ options: Options, request: SlackHistory.Request, in windows: [Node]) throws -> Output {
         var focus: SlackRenderer.Focus?
         if let target = options.target {
-            let found = limitToPane
-                ? SlackHistory.messageRows(request.pane, in: windows).contains { SlackInterpreter.isRow($0, of: target.timestamp) }
-                : SlackInterpreter.contains(windows, timestamp: target.timestamp)
-            guard found else {
-                throw Failure(description: "message \(target.timestamp) was not found in the open conversation.")
+            // Another pane may show a copy of the target, such as an open thread's root; never substitute it.
+            guard SlackInterpreter.contains(request.pane, in: windows, timestamp: target.timestamp) else {
+                let pane = request.pane == .thread ? "thread" : "conversation"
+                throw Failure(description: "message \(target.timestamp) was not found in the open \(pane).")
             }
             focus = .init(timestamp: target.timestamp, context: options.context, wholeThread: options.thread)
         } else if let find = options.find {
@@ -120,7 +116,7 @@ public enum SlackRead {
             focus = .init(row: match, context: options.context)
         }
         return Output(focus: focus,
-                      only: limitToPane || options.last != nil || (options.thread && options.target == nil) ? request.pane : nil,
+                      only: options.target != nil || options.last != nil || options.thread ? request.pane : nil,
                       last: options.last)
     }
 }

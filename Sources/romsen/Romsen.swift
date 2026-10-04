@@ -21,8 +21,10 @@ struct Slack: ParsableCommand {
             With no options, prints what Slack has on screen without touching it. The options below \
             scroll the message list as far as they need to, then scroll it back.
 
-            A message link prints that message and its neighbours. The conversation it points to \
-            must already be open in Slack. A link into a thread opens that thread.
+            A message link prints that message and its neighbours, or the whole thread with \
+            --thread. It reads only the thread for a link into a thread or with --thread, and only \
+            the conversation otherwise. The conversation must already be open in Slack. A link into \
+            a thread opens that thread.
 
             --save-snapshot saves the initial screen as JSON before any scrolling or clicks, while \
             printing the usual output. --from-snapshot reads that JSON without accessing Slack or \
@@ -32,11 +34,13 @@ struct Slack: ParsableCommand {
             to be open with its start captured; --thread alone reads the saved open thread.
 
             Unrecognised view structure or timestamp-shaped message rows produce a warning on \
-            stderr; available text stays on stdout and warnings alone exit 0. Filtered reads omit \
-            text whose pane cannot be identified. Existing errors still fail. Empty known views \
-            and omitted sender/time fields do not trigger warnings. This detects known structural \
-            mismatches, not every missing field or change that removes all row clues. The same \
-            checks apply to live and saved reads; --raw does not warn about structure.
+            stderr; available text stays on stdout and warnings alone exit 0. Filtered reads, \
+            including conversation links, omit text whose view cannot be identified instead of \
+            using another pane. Existing errors still fail, including a link whose message or \
+            thread is missing. Empty known views and omitted sender/time fields do not trigger \
+            warnings. This detects known structural mismatches, not every missing field or change \
+            that removes all row clues. The same checks apply to live and saved reads; --raw does \
+            not warn about structure.
 
             Example: romsen slack --save-snapshot /tmp/screen.json
                      romsen slack --from-snapshot /tmp/screen.json --last 10
@@ -137,7 +141,7 @@ struct Slack: ParsableCommand {
             if opening.startFromThreadRead { initial = threadReads.last }
         }
         let windows = try SlackHistory.collect(request, driver: driver, initial: initial, observations: threadReads)
-        let output = try SlackRead.output(options, request: request, in: windows, source: driver.source)
+        let output = try SlackRead.output(options, request: request, in: windows)
         let screens = SlackInterpreter.read(windows)
         for diagnostic in SlackInterpreter.diagnostics(screens, focus: output.focus, only: output.only, last: output.last) {
             warn(diagnostic.rawValue)

@@ -195,10 +195,9 @@ public enum SlackInterpreter {
     /// Per-list prefixes and fixed-width timestamps make lexical order chronological.
     static func rowPrecedes(_ lhs: String, _ rhs: String) -> Bool { lhs < rhs }
 
-    public static func contains(_ windows: [Node], timestamp: String) -> Bool {
-        windows.contains { window in
-            window.first { isPagingMessageRow($0) && isRow($0, of: timestamp) } != nil
-        }
+    /// Whether the pane's recognised message rows include the message.
+    static func contains(_ pane: SlackHistory.Pane, in windows: [Node], timestamp: String) -> Bool {
+        SlackHistory.messageRows(pane, in: windows).contains { isRow($0, of: timestamp) }
     }
 
     static func isRow(_ row: Node, of timestamp: String) -> Bool {

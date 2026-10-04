@@ -432,6 +432,73 @@ func limitsAListOfWrappedUnknownRows(listRole: String) throws {
     #expect(result.2 == 0)
 }
 
+@Test func doesNotSubstituteAnotherPaneForAnUnidentifiedLinkedPane() throws {
+    var missing = diagnosticView([diagnosticRow(0), diagnosticRow(1)])
+    missing.domClasses = ["changed-view"]
+    let thread = diagnosticView([
+        diagnosticRow(0, prefix: "message-list_Thread_"),
+        Node(role: "AXGroup", domID: "message-list_Thread_separator"),
+        diagnosticRow(2, prefix: "message-list_Thread_")
+    ], thread: true)
+    let windows = diagnosticWindow([missing, thread])
+    let arguments = ["https://example.slack.com/archives/C123/p1700000000000100", "--context", "1"]
+    let live = try diagnosticRead(windows, arguments: arguments)
+    let saved = try diagnosticCLI(windows, arguments: arguments)
+    #expect(!live.0.contains("body"))
+    #expect(saved.0 == live.0 + "\n")
+    #expect(live.1 == [SlackInterpreter.Diagnostic.unidentifiedPane.rawValue])
+    #expect(saved.1 == "romsen: warning: \(SlackInterpreter.Diagnostic.unidentifiedPane.rawValue)\n")
+    #expect(saved.2 == 0)
+
+    var changedThread = thread
+    changedThread.domClasses = ["changed-view"]
+    let threadMissing = diagnosticWindow([diagnosticView([diagnosticRow(0), diagnosticRow(1)]), changedThread])
+    let reply = ["https://example.slack.com/archives/C123/p1700000002000100?thread_ts=1700000000.000100"]
+    #expect(throws: SlackRead.Failure.self) { try diagnosticRead(threadMissing, arguments: reply) }
+    let failed = try diagnosticCLI(threadMissing, arguments: reply)
+    #expect(failed.0.isEmpty)
+    #expect(!failed.1.contains("warning:"))
+    #expect(failed.2 != 0)
+}
+
+@Test func readsLinksOnRecognisedScreensTheSameLiveAndSaved() throws {
+    func thread(separator: String) -> Node {
+        diagnosticView([
+            diagnosticRow(0, prefix: "message-list_Thread_"), Node(role: "AXGroup", domID: separator),
+            diagnosticRow(2, prefix: "message-list_Thread_"), diagnosticRow(3, prefix: "message-list_Thread_")
+        ], thread: true)
+    }
+    let conversation = diagnosticWindow([diagnosticView([diagnosticRow(0), diagnosticRow(1)]),
+                                         thread(separator: "message-list_Thread_separator")])
+    var result = diagnosticRow(4)
+    result.domID = "search-result"
+    result.domClasses = []
+    let search = Node(role: "AXGroup", domClasses: ["p-view_contents", "p-view_contents--sidebar"], children: [result])
+    // Without a conversation list the thread list is checked for a channel, so its separator must not look like one.
+    let beside = diagnosticWindow([search, thread(separator: "message-list_Thread_1700000000.000100_separator")])
+    let link = "https://example.slack.com/archives/C123/p"
+    let reply = link + "1700000002000100?thread_ts=1700000000.000100"
+    let cases: [([Node], [String], [String], [String])] = [
+        (conversation, [link + "1700000001000100", "--context", "1"], ["known body 0", "known body 1"], ["body 2"]),
+        (conversation, [link + "1700000000000100", "--context", "0"], ["known body 0"], ["body 1", "body 2"]),
+        (conversation, [reply, "--context", "0"], ["known body 2"], ["body 0", "body 3"]),
+        (conversation, [link + "1700000000000100", "--thread"], ["known body 0", "known body 2", "known body 3"], ["body 1"]),
+        (beside, [reply, "--context", "1"], ["known body 0", "known body 2", "known body 3"], ["body 4"]),
+        (beside, [link + "1700000000000100", "--thread"], ["known body 0", "known body 2", "known body 3"], ["body 4"])
+    ]
+    for (windows, arguments, present, absent) in cases {
+        let live = try diagnosticRead(windows, arguments: arguments)
+        let saved = try diagnosticCLI(windows, arguments: arguments)
+        #expect(saved.0 == live.0 + "\n")
+        #expect(live.1.isEmpty)
+        #expect(saved.1.isEmpty)
+        #expect(saved.2 == 0)
+        for text in present { #expect(live.0.contains(text)) }
+        for text in absent { #expect(!live.0.contains(text)) }
+        #expect(live.0.components(separatedBy: "\n## ").count == 2)
+    }
+}
+
 @Test func limitsTheOutputEvenWhenMissingRowIDsPreventCollection() throws {
     var missingID = diagnosticRow(0)
     missingID.domID = nil

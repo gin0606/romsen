@@ -138,8 +138,9 @@ private func plain(id: String, _ body: String) -> Node {
             [2023-11-14 22:13] alice: reply 6
             [2023-11-14 22:13] alice: reply 7
             """)
-    #expect(SlackInterpreter.contains(windows, timestamp: "1700000006.000000"))
-    #expect(!SlackInterpreter.contains(windows, timestamp: "1700000009.000000"))
+    #expect(SlackInterpreter.contains(.thread, in: windows, timestamp: "1700000006.000000"))
+    #expect(!SlackInterpreter.contains(.thread, in: windows, timestamp: "1700000009.000000"))
+    #expect(!SlackInterpreter.contains(.conversation, in: windows, timestamp: "1700000006.000000"))
 }
 
 @Test func readsTheOpenConversationFromTheDateDivider() {

@@ -108,10 +108,13 @@ romsen warns on stderr that output may be incomplete. Available text is kept on 
 including unrecognised rows encountered while scrolling. Warnings alone exit with code 0;
 permission, read, link and search errors still fail.
 
-Warnings and fallback text follow the requested pane and message range. If a filtered read
-such as `--last` cannot identify its pane, it omits unidentified text and warns instead of
-substituting another pane. Empty known conversations or search results, omitted senders or
-times, and date dividers do not by themselves trigger a warning.
+Warnings and fallback text follow the requested pane and message range. A link reads only the
+thread when it points into a thread or `--thread` is given, and only the conversation otherwise,
+even when another pane shows the same message, such as the root of an open thread. If a filtered
+read such as `--last` or a conversation link finds its messages but cannot identify the view that
+holds them, it omits unidentified text and warns instead of substituting another pane. A link
+still fails when its message or thread cannot be found. Empty known conversations or search
+results, omitted senders or times, and date dividers do not by themselves trigger a warning.
 
 These checks detect known structural mismatches, without attributing them to a Slack update.
 They cannot guarantee detection when all message clues disappear or fields inside an otherwise
