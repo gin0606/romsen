@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-Prints what the Slack desktop app is showing as text for an agent, read through the macOS
+Prints what Slack or Google Chrome is showing as text for an agent, read through the macOS
 Accessibility API. Named after ROM専: reads, never posts.
 
 ## Install
@@ -19,7 +19,7 @@ To build from source instead, run `swift build -c release` and use `.build/relea
 
 ## Accessibility permission
 
-romsen reads Slack through the macOS Accessibility API. The permission belongs to the app that
+romsen reads Slack and Chrome through the macOS Accessibility API. The permission belongs to the app that
 launches romsen, such as your terminal or agent host, not to romsen itself. Allow that app in
 System Settings > Privacy & Security > Accessibility.
 
@@ -86,6 +86,40 @@ and success/failure; keep actual Slack content and links out of validation recor
 Packaging references: [Codex](https://developers.openai.com/plugins/build/plugins)
 and [Claude Code](https://code.claude.com/docs/en/plugin-marketplaces).
 
+## Read Chrome
+
+```sh
+romsen chrome
+romsen chrome --all
+romsen chrome --raw
+```
+
+Reads the selected tab in Chrome's focused window and prints its title, URL and structured text.
+By default, reads declared main regions and open dialogs, excluding surrounding navigation and
+sidebars. Supplementary content inside main regions is retained. Without a declared main region,
+it removes recognised navigation, sidebars, banners, footers and search regions and keeps other
+content. Unlabelled sidebars may remain. `--all` reads the whole page, including those regions.
+
+Headings, paragraphs, links and nested lists retain their relationships. Tables preserve column
+alignment; merged or sparse cells have explicit positions and spans. Controls include their
+labels, values and available states, such as checked, selected or disabled. Main content,
+navigation, forms, dialogs and other declared regions have explicit boundaries.
+
+Clearly separated sibling blocks in a single vertical stack follow their on-screen order.
+Nearby inline text wrappers stay within the sentence. Columns, overlapping or clipped elements,
+and elements without usable coordinates retain accessibility order; headings, table rows and
+numbered list items are not reordered by these layout corrections.
+
+Browser toolbars are excluded. The command does not scroll, switch tabs, or bring Chrome forward.
+Accessibility may expose text outside the viewport and omit content such as text drawn on a
+canvas. Layout and regions without semantic labels cannot always be reconstructed. The output
+is not a screenshot or a full HTML export, and does not include unseen or unloaded content.
+
+`--save-snapshot /tmp/page.json` and `--from-snapshot /tmp/page.json` save and replay the focused
+window, just like Slack snapshots. Keep these files and captured output private and delete them
+after use. `--raw` includes the browser controls in that window. Older snapshots still work,
+but missing link destinations or control states cannot be recovered from them.
+
 ## Compare output from the same screen
 
 Save the initial accessibility tree as JSON, then replay it with either build:
@@ -125,7 +159,7 @@ prints the unprocessed tree without structural warnings.
 
 Working assumptions, not fixed rules.
 
-- **Slack only.** Keeping one output format across chat apps looked hard.
+- **Slack and Chrome.** Slack reads conversations; Chrome reads the selected page as text.
 - **Shows the agent what the person is looking at.** It scrolls that view to read more, and
   does not switch conversations or workspaces.
 - **Read-only.** It scrolls and opens threads. It never types or presses anything that could

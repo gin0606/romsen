@@ -16,6 +16,7 @@ public struct Node: Codable, Equatable, Sendable {
     /// Slack does this to rows rendered outside the viewport: their descendants keep their true
     /// x range but all report the same one-point-high y range at the edge of the list.
     public var frame: CGRect?
+    public var web: WebAttributes?
     public var children: [Node]
 
     public init(
@@ -27,6 +28,7 @@ public struct Node: Codable, Equatable, Sendable {
         domID: String? = nil,
         domClasses: [String] = [],
         frame: CGRect? = nil,
+        web: WebAttributes? = nil,
         children: [Node] = []
     ) {
         self.role = role
@@ -37,6 +39,7 @@ public struct Node: Codable, Equatable, Sendable {
         self.domID = domID
         self.domClasses = domClasses
         self.frame = frame
+        self.web = web
         self.children = children
     }
 
@@ -88,6 +91,7 @@ public struct Node: Codable, Equatable, Sendable {
         if let description { line += " desc=\(description.debugDescription)" }
         if let domID { line += " id=\(domID)" }
         if !domClasses.isEmpty { line += " class=\(domClasses.joined(separator: "."))" }
+        if let web { line += " web=\(web)" }
         lines.append(line)
         for child in children {
             child.appendOutline(to: &lines, depth: depth + 1)

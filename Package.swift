@@ -20,16 +20,26 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .target(
+            name: "RomsenChrome",
+            dependencies: [
+                "AXTree",
+                "AXSnapshot",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
         .executableTarget(
             name: "romsen",
             dependencies: [
                 "RomsenSlack",
+                "RomsenChrome",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .testTarget(name: "AXTreeTests", dependencies: ["AXTree"]),
         .testTarget(name: "SlackAdapterTests", dependencies: ["SlackAdapter", "AXTree"]),
         .testTarget(name: "RomsenSlackTests", dependencies: ["RomsenSlack", "SlackAdapter", "AXTree", "romsen"]),
+        .testTarget(name: "RomsenChromeTests", dependencies: ["RomsenChrome", "AXTree", "romsen"]),
         .testTarget(name: "RomsenTests", dependencies: ["romsen"]),
     ]
 )
