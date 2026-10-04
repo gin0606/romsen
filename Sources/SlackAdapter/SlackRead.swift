@@ -42,6 +42,19 @@ package enum SlackRead {
     }
 
     package static func prepare(_ options: Options, in current: [Node]) throws -> Action {
+        if options.target != nil || options.last != nil || options.find != nil || options.thread || options.history > 0 {
+            let candidates = current.filter { window in
+                window.first(where: SlackInterpreter.isThreadView) != nil
+                    || SlackInterpreter.read([window]).contains { screen in
+                        screen.views.contains { $0.kind == .conversation }
+                    }
+            }
+            guard candidates.count < 2 else {
+                throw Failure(description:
+                    "multiple Slack windows contain conversations or threads, so the window to read is ambiguous. "
+                    + "Keep only one window showing the conversation or thread you want to read and run this again.")
+            }
+        }
         var request = SlackHistory.Request()
         request.olderPages = options.history
         request.last = options.last

@@ -186,6 +186,24 @@ func preservesReadFailuresBeforeAndDuringCollection(duringCollection: Bool) thro
 
 private final class DiagnosticTestBundle: NSObject {}
 
+@Test func ambiguousWindowsFailWithExitOneAndNoMessageOutput() throws {
+    let window = diagnosticWindow([diagnosticView([diagnosticRow(0), diagnosticRow(1)])])
+    for arguments in [["--last", "1"], ["--find", "known"], ["--thread"], ["--history", "1"],
+                      ["https://example.slack.com/archives/C123/p1700000000000100"]] {
+        let (stdout, stderr, status) = try diagnosticCLI(window + window, arguments: arguments)
+        #expect(stdout.isEmpty)
+        #expect(stderr.contains("romsen: multiple Slack windows"))
+        #expect(stderr.contains("Keep only one window"))
+        #expect(status == 1)
+    }
+    for arguments in [[], ["--raw"]] {
+        let (stdout, stderr, status) = try diagnosticCLI(window + window, arguments: arguments)
+        #expect(stdout.contains("known body 0"))
+        #expect(stderr.isEmpty)
+        #expect(status == 0)
+    }
+}
+
 private func diagnosticCLI(_ windows: [Node], arguments: [String] = []) throws -> (String, String, Int32) {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

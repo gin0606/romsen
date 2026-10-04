@@ -184,3 +184,96 @@ func savesBeforeScrollingOrOpeningAThread(openThread: Bool) throws {
         #expect(throws: (any Error).self) { try command.makeDriver() }
     }
 }
+
+private let targetedReads = [
+    ["https://example.slack.com/archives/C123/p1700000000000100"],
+    ["https://example.slack.com/archives/C123/p1700000000000100", "--thread"],
+    ["--last", "1"], ["--find", "needle"], ["--thread"], ["--history", "1"]
+]
+
+@Test(arguments: targetedReads)
+func rejectsAmbiguousWindowsBeforeAnyNavigation(arguments: [String]) throws {
+    let conversation = screen()[0]
+    var otherConversation = conversation
+    otherConversation.children[0].description = "Channel other"
+    let thread = Node(role: "AXWindow", children: [screen(threadRoot: "1700000000.000100")[0].children[1]])
+    var secondaryThread = thread
+    secondaryThread.children[0].domClasses = ["p-view_contents--secondary"]
+    let emptyConversation = Node(role: "AXWindow", children: [
+        Node(role: "AXGroup", domClasses: ["p-view_contents", "p-view_contents--primary"])
+    ])
+    let unrelated = Node(role: "AXWindow", children: [Node(role: "AXStaticText", value: "Preferences")])
+    for windows in [[conversation, conversation], [conversation, otherConversation],
+                    [otherConversation, conversation], [conversation, thread], [thread, thread],
+                    [conversation, secondaryThread], [secondaryThread, secondaryThread],
+                    [conversation, emptyConversation], [unrelated, conversation, thread]] {
+        try withSnapshot(windows) { url in
+            let saved = try Slack.parse(arguments + ["--from-snapshot", url.path])
+            let live = SlackHistory.Driver(snapshot: { windows }, scrollToVisible: { _ in
+                Issue.record("An ambiguous read must not scroll")
+                return false
+            }, pause: { Issue.record("An ambiguous read must not wait") }, press: { _, _ in
+                Issue.record("An ambiguous read must not click")
+                return false
+            })
+            for driver in [live, try saved.makeDriver()] {
+                do {
+                    _ = try saved.read(using: driver)
+                    Issue.record("An ambiguous read must fail")
+                } catch let error as SlackRead.Failure {
+                    #expect(error.description.contains("multiple Slack windows"))
+                    #expect(error.description.contains("Keep only one window"))
+                }
+            }
+        }
+    }
+}
+
+@Test(arguments: targetedReads)
+func ignoresWindowsWithoutConversationOrThreadViews(arguments: [String]) throws {
+    let main = screen(threadRoot: "1700000000.000100")
+    let unrelated = Node(role: "AXWindow", children: [Node(role: "AXStaticText", value: "Preferences")])
+    let search = Node(role: "AXWindow", children: [
+        Node(role: "AXGroup", domClasses: ["p-view_contents", "p-view_contents--sidebar"],
+             children: [row("1700000000.000100", "search result")])
+    ])
+    for windows in [main, [unrelated, search] + main, main + [search, unrelated]] {
+        try withSnapshot(windows) { url in
+            let command = try Slack.parse(arguments + ["--from-snapshot", url.path])
+            for driver in [try command.makeDriver(), SlackHistory.Driver(
+                snapshot: { windows }, scrollToVisible: { _ in false }, pause: {})] {
+                #expect(try !command.read(using: driver).isEmpty)
+            }
+        }
+    }
+}
+
+@Test func preservesAllWindowsInDefaultRawAndSavedReads() throws {
+    var other = screen()[0]
+    other.children[0].description = "Channel other"
+    let windows = screen() + [other, Node(role: "AXWindow", children: [Node(role: "AXStaticText", value: "Preferences")])]
+    let expected = SlackRenderer.render(SlackInterpreter.read(windows))
+    for arguments in [[], ["--history", "0"], ["--raw"], ["--raw", "--last", "1"]] {
+        try withSnapshot([]) { url in
+            let command = try Slack.parse(arguments + ["--save-snapshot", url.path])
+            let driver = SlackHistory.Driver(snapshot: { windows }, scrollToVisible: { _ in
+                Issue.record("An unfiltered or raw read must not scroll")
+                return false
+            }, pause: {}, press: { _, _ in
+                Issue.record("An unfiltered or raw read must not click")
+                return false
+            })
+            let output = try command.read(using: driver)
+            #expect(output == (arguments.contains("--raw") ? windows.map { $0.outline() }.joined(separator: "\n") : expected))
+            #expect(try JSONDecoder().decode([Node].self, from: Data(contentsOf: url)) == windows)
+            let replay = try Slack.parse(arguments + ["--from-snapshot", url.path])
+            #expect(try replay.read(using: replay.makeDriver()) == output)
+        }
+    }
+    try withSnapshot([]) { url in
+        let command = try Slack.parse(["--last", "1", "--save-snapshot", url.path])
+        let driver = SlackHistory.Driver(snapshot: { windows }, scrollToVisible: { _ in false }, pause: {})
+        #expect(throws: SlackRead.Failure.self) { try command.read(using: driver) }
+        #expect(try JSONDecoder().decode([Node].self, from: Data(contentsOf: url)) == windows)
+    }
+}

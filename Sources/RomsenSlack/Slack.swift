@@ -13,6 +13,12 @@ public struct Slack: ParsableCommand {
             With no options, prints what Slack has on screen without touching it. The options below \
             scroll the message list as far as they need to, then scroll it back.
 
+            If two or more windows contain conversation or thread views, a link, --last, --find, \
+            --thread, or --history greater than 0 fails with exit code 1 before scrolling or clicking. \
+            Keep only one window showing the conversation or thread you want to read. Other windows \
+            without these views do not count. With no options, all windows are printed with headings; \
+            --raw and --save-snapshot still include all windows. This also applies to --from-snapshot.
+
             A message link prints that message and its neighbours, or the whole thread with \
             --thread. It reads only the thread for a link into a thread or with --thread, and only \
             the conversation otherwise. The conversation must already be open in Slack. A link into \

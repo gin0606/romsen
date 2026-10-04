@@ -168,6 +168,13 @@ it, and delete it and any captured output after comparing.
 
 ## Reading warnings
 
+If two or more Slack windows contain conversation or thread views, a message link, `--last`,
+`--find`, `--thread`, or `--history` greater than 0 fails with exit code 1 before scrolling or
+clicking. Keep only one window showing the conversation or thread you want to read. Windows
+without these views do not count. With no options, all windows are printed with headings;
+`--raw` and `--save-snapshot` still include all windows. Live reads and `--from-snapshot`
+use the same check, even when the windows show the same conversation.
+
 Accessibility acquisition failures, traversal limits and Chromium readiness timeouts fail the
 command instead of returning a partial snapshot as a successful read. This also applies to
 `--raw` and `--save-snapshot`.
