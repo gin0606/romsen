@@ -137,6 +137,10 @@ it, and delete it and any captured output after comparing.
 
 ## Reading warnings
 
+Accessibility acquisition failures, traversal limits and Chromium readiness timeouts fail the
+command instead of returning a partial snapshot as a successful read. This also applies to
+`--raw` and `--save-snapshot`.
+
 If a view cannot be recognised, or a timestamp-shaped message row cannot be interpreted,
 romsen warns on stderr that output may be incomplete. Available text is kept on stdout,
 including unrecognised rows encountered while scrolling. Warnings alone exit with code 0;

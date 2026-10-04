@@ -132,15 +132,9 @@ private func cell(_ value: String, row: Int, column: Int, rowSpan: Int = 1, colu
     #expect(output.contains("[Dialog — Confirm]\n\nSave changes?\n\n[/Dialog]"))
 }
 
-@Test func chromeWebAttributesRoundTripAndLegacySnapshotsStillDecode() throws {
-    let node = Node(role: "AXLink", title: "Example", web: web {
-        $0.url = "https://example.com/"; $0.expanded = false; $0.selected = true
-        $0.columnIndex = 2; $0.rowSpan = 3; $0.columnHeaders = ["Price"]
-    })
-    #expect(try JSONDecoder().decode(Node.self, from: JSONEncoder().encode(node)) == node)
+@Test func chromeRendersLegacySnapshots() throws {
     let legacy = Data(#"{"role":"AXStaticText","value":"Legacy","domClasses":[],"children":[]}"#.utf8)
     let decoded = try JSONDecoder().decode(Node.self, from: legacy)
-    #expect(decoded.web == nil)
     #expect(render([decoded]) == "Legacy")
 }
 

@@ -12,3 +12,17 @@ import Testing
     let restored = try JSONDecoder().decode([Node].self, from: JSONEncoder().encode(windows))
     #expect(restored == windows)
 }
+
+@Test func webAttributesRoundTripAndLegacySnapshotsStillDecode() throws {
+    var attributes = WebAttributes()
+    attributes.url = "https://example.com/"
+    attributes.expanded = false
+    attributes.selected = true
+    attributes.columnIndex = 2
+    attributes.rowSpan = 3
+    attributes.columnHeaders = ["Price"]
+    let node = Node(role: "AXLink", title: "Example", web: attributes)
+    #expect(try JSONDecoder().decode(Node.self, from: JSONEncoder().encode(node)) == node)
+    let legacy = Data(#"{"role":"AXStaticText","value":"Legacy","domClasses":[],"children":[]}"#.utf8)
+    #expect(try JSONDecoder().decode(Node.self, from: legacy).web == nil)
+}

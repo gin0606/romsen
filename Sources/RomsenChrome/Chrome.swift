@@ -72,7 +72,8 @@ public struct Chrome: ParsableCommand {
     public func run() throws {
         do {
             print(try read {
-                try Reader.snapshotWindows(bundleID: "com.google.Chrome", focusedWindowOnly: true, includeWebSemantics: true)
+                try Reader.snapshotWindows(bundleID: "com.google.Chrome", focusedWindowOnly: true, includeWebSemantics: true,
+                                           preparation: .chromium())
             })
         } catch let error as ReaderError {
             FileHandle.standardError.write(Data("romsen: \(error.description)\n".utf8))

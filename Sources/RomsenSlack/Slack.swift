@@ -94,7 +94,7 @@ public struct Slack: ParsableCommand {
         }
         let bundleID = SlackInterpreter.bundleID
         return SlackHistory.Driver(
-            snapshot: { try Reader.snapshotWindows(bundleID: bundleID) },
+            snapshot: { try Reader.snapshotWindows(bundleID: bundleID, preparation: .chromium()) },
             scrollToVisible: { Reader.scrollToVisible(bundleID: bundleID, domID: $0) },
             pause: { Thread.sleep(forTimeInterval: 0.3) },
             press: { Reader.press(bundleID: bundleID, domID: $0, descendantClass: $1) })

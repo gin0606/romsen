@@ -2,11 +2,16 @@ import AXTree
 import AppKit
 import ApplicationServices
 
-public enum ReaderError: Error, CustomStringConvertible {
+public enum ReaderError: Error, CustomStringConvertible, Equatable {
     case notTrusted
     case notRunning(bundleID: String)
     case noWindows(bundleID: String)
     case noFocusedWindow(bundleID: String)
+    case acquisitionFailed(operation: String, code: Int32)
+    case invalidAttribute(String)
+    case nodeLimitExceeded
+    case depthLimitExceeded
+    case webContentTimedOut
 
     public var description: String {
         switch self {
@@ -20,7 +25,17 @@ public enum ReaderError: Error, CustomStringConvertible {
         case .noWindows(let bundleID):
             "\(bundleID) has no open windows to read."
         case .noFocusedWindow(let bundleID):
-            "\(bundleID) has no focused window to read. Select a browser window and try again."
+            "\(bundleID) has no focused window to read. Select a window and try again."
+        case let .acquisitionFailed(operation, code):
+            "Accessibility operation \(operation) failed (error \(code))."
+        case let .invalidAttribute(name):
+            "Accessibility returned an invalid or missing \(name) attribute."
+        case .nodeLimitExceeded:
+            "Accessibility snapshot exceeded the node limit; incomplete content was not returned."
+        case .depthLimitExceeded:
+            "Accessibility snapshot exceeded the depth limit; incomplete content was not returned."
+        case .webContentTimedOut:
+            "Accessibility web content did not become ready before the timeout."
         }
     }
 }
@@ -33,50 +48,52 @@ public enum ReaderError: Error, CustomStringConvertible {
 /// The Accessibility permission is checked against the process that launched this one (the
 /// terminal or the agent's host app), not against this binary.
 public enum Reader {
-    private static let attributes = [
-        kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXValueAttribute,
-        kAXDescriptionAttribute, "AXDOMIdentifier", "AXDOMClassList", kAXChildrenAttribute, "AXFrame",
-    ]
     private static let maxNodes = 50_000
-    private static let webAttributes = [
-        "AXURL", "AXValueDescription", "AXPlaceholderValue", "AXEnabled", "AXSelected",
-        "AXExpanded", "AXRequired", "AXRowIndexRange", "AXColumnIndexRange",
-        "AXColumnHeaderUIElements", "AXRowHeaderUIElements",
-    ]
 
-    /// Chromium-based apps build their accessibility tree only once an assistive client asks for
-    /// it, so this sets `AXManualAccessibility` on the app and waits for the web content to
-    /// appear. The switch stays on afterwards, which keeps later reads fast.
-    ///
-    /// Measured on Slack: before the switch the window holds only native chrome and an empty
-    /// web area; about three seconds after it, the full tree is there. With the switch already
-    /// on, a read takes well under a second. The switch resets when the app restarts.
+    public enum Preparation {
+        case none
+        /// Enable Chromium's accessibility tree, then wait for stable web content.
+        case chromium(timeout: TimeInterval = 10)
+    }
+
     public static func snapshotWindows(
         bundleID: String, focusedWindowOnly: Bool = false, includeWebSemantics: Bool = false,
-        webContentTimeout: TimeInterval = 10
+        preparation: Preparation = .none
     ) throws -> [Node] {
         guard AXIsProcessTrusted() else { throw ReaderError.notTrusted }
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
             throw ReaderError.notRunning(bundleID: bundleID)
         }
         let element = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(element, 5)
-        AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        try AXAccess.check(AXUIElementSetMessagingTimeout(element, 5), operation: "set messaging timeout")
+        return try preparedSnapshot(preparation, prepare: {
+            AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        }, snapshot: {
+            try readWindows(of: element, bundleID: bundleID, focusedWindowOnly: focusedWindowOnly,
+                            includeWebSemantics: includeWebSemantics)
+        })
+    }
 
-        var windows = try readWindows(of: element, bundleID: bundleID, focusedWindowOnly: focusedWindowOnly,
-                                      includeWebSemantics: includeWebSemantics)
-        // The web content fills in over a few seconds, so wait until two reads in a row agree.
-        let deadline = Date().addingTimeInterval(webContentTimeout)
-        var previousCount = -1
-        while Date() < deadline {
-            let count = windows.reduce(0) { $0 + $1.nodeCount }
-            if hasWebContent(windows), count == previousCount { break }
-            previousCount = count
-            Thread.sleep(forTimeInterval: 0.3)
-            windows = try readWindows(of: element, bundleID: bundleID, focusedWindowOnly: focusedWindowOnly,
-                                      includeWebSemantics: includeWebSemantics)
+    static func preparedSnapshot(
+        _ preparation: Preparation, prepare: () throws -> AXError, snapshot: () throws -> [Node],
+        now: () -> Date = { Date() }, pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    ) throws -> [Node] {
+        guard case let .chromium(timeout) = preparation else { return try snapshot() }
+        // Chrome can expose its tree without supporting Electron's manual-accessibility switch.
+        let status = try prepare()
+        if status != .attributeUnsupported {
+            try AXAccess.check(status, operation: "enable AXManualAccessibility")
         }
-        return windows
+        let deadline = now().addingTimeInterval(timeout)
+        var windows = try snapshot()
+        while now() < deadline {
+            let previous = windows.reduce(0) { $0 + $1.nodeCount }
+            pause(min(0.3, max(0, deadline.timeIntervalSince(now()))))
+            windows = try snapshot()
+            if windows.contains(where: { $0.first { $0.role == "AXWebArea" && !$0.children.isEmpty } != nil }),
+               windows.reduce(0, { $0 + $1.nodeCount }) == previous { return windows }
+        }
+        throw ReaderError.webContentTimedOut
     }
 
     /// Scrolls the element with this DOM id into view. Returns false if no such element exists
@@ -155,114 +172,28 @@ public enum Reader {
         return nil
     }
 
-    private static func hasWebContent(_ windows: [Node]) -> Bool {
-        windows.contains { window in
-            window.first { $0.role == "AXWebArea" && !$0.children.isEmpty } != nil
-        }
-    }
-
     private static func readWindows(of app: AXUIElement, bundleID: String, focusedWindowOnly: Bool,
                                     includeWebSemantics: Bool) throws -> [Node] {
-        var value: CFTypeRef?
+        let windows: [AXUIElement]
         if focusedWindowOnly {
-            AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value)
-            guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            guard let value = try AXAccess.attribute(app, kAXFocusedWindowAttribute) else {
                 throw ReaderError.noFocusedWindow(bundleID: bundleID)
             }
-            var budget = maxNodes
-            return [read(value as! AXUIElement, budget: &budget, includeWebSemantics: includeWebSemantics)]
-        }
-        AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
-        guard let windows = value as? [AXUIElement], !windows.isEmpty else {
-            throw ReaderError.noWindows(bundleID: bundleID)
-        }
-        var budget = maxNodes
-        return windows.map { read($0, budget: &budget, includeWebSemantics: includeWebSemantics) }
-    }
-
-    private static func read(_ element: AXUIElement, budget: inout Int, includeWebSemantics: Bool) -> Node {
-        budget -= 1
-        var raw: CFArray?
-        AXUIElementCopyMultipleAttributeValues(
-            element, (attributes + (includeWebSemantics ? webAttributes : [])) as CFArray,
-            AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
-        // One call for all attributes: each accessibility call is a round trip to the app, and a
-        // tree has hundreds to thousands of nodes.
-        // A missing attribute comes back as an error placeholder, which fails the casts below.
-        let values = (raw as? [Any]) ?? []
-        func string(_ index: Int) -> String? {
-            guard index < values.count, let text = values[index] as? String, !text.isEmpty else { return nil }
-            return text
-        }
-        var node = Node(
-            role: string(0) ?? "AXUnknown",
-            subrole: string(1),
-            title: string(2),
-            value: string(3),
-            description: string(4),
-            domID: string(5),
-            domClasses: values.count > 6 ? (values[6] as? [String]) ?? [] : []
-        )
-        if includeWebSemantics {
-            if node.value == nil, values.count > 3, let number = values[3] as? NSNumber {
-                node.value = number.stringValue
+            guard CFGetTypeID(value as CFTypeRef) == AXUIElementGetTypeID() else {
+                throw ReaderError.invalidAttribute(kAXFocusedWindowAttribute)
             }
-            func bool(_ index: Int) -> Bool? {
-                index < values.count ? (values[index] as? NSNumber)?.boolValue : nil
+            windows = [value as! AXUIElement]
+        } else {
+            let value = try AXAccess.attribute(app, kAXWindowsAttribute)
+            if value == nil { throw ReaderError.noWindows(bundleID: bundleID) }
+            guard let elements = value as? [AXUIElement] else {
+                throw ReaderError.invalidAttribute(kAXWindowsAttribute)
             }
-            func range(_ index: Int) -> CFRange? {
-                guard index < values.count, CFGetTypeID(values[index] as CFTypeRef) == AXValueGetTypeID() else { return nil }
-                var result = CFRange()
-                return AXValueGetValue(values[index] as! AXValue, .cfRange, &result) ? result : nil
-            }
-            func headers(_ index: Int) -> [String]? {
-                guard index < values.count, let elements = values[index] as? [AXUIElement], !elements.isEmpty else { return nil }
-                return elements.map { headerText($0, depth: 0) }.filter { !$0.isEmpty }
-            }
-            var web = WebAttributes()
-            if values.count > 9 { web.url = (values[9] as? URL)?.absoluteString ?? string(9) }
-            web.valueDescription = string(10)
-            web.placeholder = string(11)
-            web.enabled = bool(12)
-            web.selected = bool(13)
-            // Chromium can return false for AXExpanded even on elements that do not expose it.
-            if bool(14) != nil {
-                var supported: CFArray?
-                AXUIElementCopyAttributeNames(element, &supported)
-                if (supported as? [String])?.contains("AXExpanded") == true { web.expanded = bool(14) }
-            }
-            web.required = bool(15)
-            let row = range(16), column = range(17)
-            web.rowIndex = row?.location
-            web.rowSpan = row?.length
-            web.columnIndex = column?.location
-            web.columnSpan = column?.length
-            web.columnHeaders = headers(18)
-            web.rowHeaders = headers(19)
-            node.web = web
+            guard !elements.isEmpty else { throw ReaderError.noWindows(bundleID: bundleID) }
+            windows = elements
         }
-        if values.count > 8, CFGetTypeID(values[8] as CFTypeRef) == AXValueGetTypeID() {
-            var rect = CGRect.zero
-            if AXValueGetValue(values[8] as! AXValue, .cgRect, &rect) { node.frame = rect }
-        }
-        if values.count > 7, let children = values[7] as? [AXUIElement] {
-            for child in children where budget > 0 {
-                node.children.append(read(child, budget: &budget, includeWebSemantics: includeWebSemantics))
-            }
-        }
-        return node
-    }
-
-    private static func headerText(_ element: AXUIElement, depth: Int) -> String {
-        guard depth < 8 else { return "" }
-        var raw: CFArray?
-        AXUIElementCopyMultipleAttributeValues(element, ["AXTitle", "AXValue", "AXDescription", "AXChildren"] as CFArray,
-                                               AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
-        let values = raw as? [Any] ?? []
-        for value in values.prefix(3) {
-            if let text = value as? String, !text.isEmpty { return text }
-        }
-        guard values.count > 3, let children = values[3] as? [AXUIElement] else { return "" }
-        return children.prefix(100).map { headerText($0, depth: depth + 1) }.joined()
+        var capture = SnapshotCapture<AXUIElement>(includeWebSemantics: includeWebSemantics,
+                                                  values: AXAccess.values, names: AXAccess.names)
+        return try capture.windows(windows)
     }
 }

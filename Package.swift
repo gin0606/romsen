@@ -36,6 +36,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .testTarget(name: "AXSnapshotTests", dependencies: ["AXSnapshot", "AXTree"]),
         .testTarget(name: "AXTreeTests", dependencies: ["AXTree"]),
         .testTarget(name: "SlackAdapterTests", dependencies: ["SlackAdapter", "AXTree"]),
         .testTarget(name: "RomsenSlackTests", dependencies: ["RomsenSlack", "SlackAdapter", "AXTree", "romsen"]),
