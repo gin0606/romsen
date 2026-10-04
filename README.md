@@ -34,21 +34,15 @@ conversation in the Slack desktop app. Reads may scroll or open a thread, but do
 not send messages or switch conversations. The skill reports incomplete reads
 when romsen warns on stderr.
 
-Get this repository, or use an existing checkout containing `plugins/romsen/`:
-
-```sh
-git clone https://github.com/gin0606/romsen.git
-cd romsen
-```
-
-Run the installation commands below from this directory. Keep the checkout for
-local marketplace updates. The installed skill calls `romsen` on PATH, so agent
-sessions can run from other working directories.
+Install from the Git marketplace below; no local checkout is needed. The skill
+calls `romsen` on PATH, so agent sessions can run from any working directory.
+Plugin updates follow this repository's default branch (`main`), independently
+of Homebrew CLI releases.
 
 ### Codex
 
 ```sh
-codex plugin marketplace add .
+codex plugin marketplace add gin0606/romsen
 codex plugin add romsen@romsen
 ```
 
@@ -56,10 +50,18 @@ Start a new Codex session. Installation enables the plugin; if it was disabled,
 set `enabled = true` under `[plugins."romsen@romsen"]` in `~/.codex/config.toml`.
 Invoke the skill with `$romsen:slack Read what is currently visible in Slack`.
 
+In Codex CLI 0.160.0, starting a session refreshes Git marketplaces and installed
+plugins in the background; the updated skill is available in the next session.
+This automatic refresh was verified on that version and is not documented as a
+guarantee for every Codex host or version.
+
 ### Claude Code
 
+If you previously registered `romsen` from a local checkout, first run
+`claude plugin marketplace remove romsen --scope user`, then install from Git:
+
 ```sh
-claude plugin marketplace add "$(pwd)"
+claude plugin marketplace add gin0606/romsen
 claude plugin install romsen@romsen --scope user
 claude plugin list
 ```
@@ -69,9 +71,38 @@ needed), then start a new session and enter
 `/romsen:slack Read what is currently visible in Slack`.
 `claude plugin details romsen` lists the shared `slack` skill.
 
+In `/plugin`, open **Marketplaces**, select **romsen**, and choose
+**Enable auto-update**. Third-party marketplaces have auto-update disabled by
+default. Updates run in the background after the first message in an interactive
+session, with a delay of up to ten minutes. Use the updated skill in the next
+session, or run `/reload-plugins` after the update completes. See
+[Claude Code's loading reference](https://code.claude.com/docs/en/plugins/loading#when-auto-update-runs).
+
 ### Validate local changes
 
-The host manifests in `plugins/romsen/` both load `skills/slack/SKILL.md`.
+Clone this repository and run these commands from its root. Local marketplaces
+are for developing the skill; they do not fetch changes from GitHub:
+
+```sh
+codex plugin marketplace add .
+codex plugin add romsen@romsen
+claude plugin marketplace add "$(pwd)"
+claude plugin install romsen@romsen --scope user
+```
+
+Use an isolated host configuration if `romsen` is already registered as a Git
+marketplace. The host manifests in `plugins/romsen/` both load `skills/slack/SKILL.md`.
+After changing tracked plugin files, regenerate both host versions before committing
+(stage new plugin files first). Python 3 and Git are required:
+
+```sh
+scripts/plugin-version
+scripts/plugin-version --check
+```
+
+Both manifests use the same `0.1.0+plugin.<hash>` version. The hash covers the paths
+and contents of Git-tracked files in `plugins/romsen/`, excluding the generated
+`version` field in both manifests. CI rejects either manifest if its value is stale.
 Validate the Claude Code package and marketplace with:
 
 ```sh

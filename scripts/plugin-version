@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Generate or check both host plugin versions from tracked plugin content."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--check", action="store_true", help="fail if the version is stale")
+args = parser.parse_args()
+
+root = Path(__file__).resolve().parent.parent
+manifests = {
+    f"plugins/romsen/{host}/plugin.json": json.loads(
+        (root / f"plugins/romsen/{host}/plugin.json").read_text()
+    )
+    for host in (".codex-plugin", ".claude-plugin")
+}
+paths = subprocess.check_output(
+    ["git", "ls-files", "-z", "--", "plugins/romsen/"], cwd=root
+).split(b"\0")
+
+digest = hashlib.sha256()
+for path_bytes in sorted(path for path in paths if path):
+    relative_path = path_bytes.decode()
+    path = root / relative_path
+    if not path.exists():
+        continue
+    if relative_path in manifests:
+        # Exclude both generated fields so updating them does not change the hash.
+        content = {
+            key: value for key, value in manifests[relative_path].items() if key != "version"
+        }
+        data = json.dumps(content, sort_keys=True, separators=(",", ":")).encode()
+    else:
+        data = path.read_bytes()
+    digest.update(path_bytes + b"\0" + str(len(data)).encode() + b"\0" + data)
+
+version = "0.1.0+plugin." + digest.hexdigest()[:16]
+if args.check:
+    stale = [path for path, manifest in manifests.items() if manifest.get("version") != version]
+    if stale:
+        parser.exit(1, "Plugin version is stale in " + ", ".join(stale)
+                    + "; run scripts/plugin-version\n")
+    print(f"Plugin version is current: {version}")
+else:
+    for path, manifest in manifests.items():
+        manifest["version"] = version
+        (root / path).write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Plugin version: {version}")

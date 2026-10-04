@@ -32,20 +32,14 @@ plugin は romsen の実行ファイルを同梱しません。エージェン�
 読み取りではスクロールやスレッド表示が起こりますが、送信や会話の切り替えは行いません。
 標準エラーに警告があれば、skill は読み取りが不完全な可能性を伝えます。
 
-このリポジトリを取得するか、`plugins/romsen/` を含む既存の checkout を使います。
-
-```sh
-git clone https://github.com/gin0606/romsen.git
-cd romsen
-```
-
-以下の導入コマンドはこのディレクトリで実行します。ローカル marketplace の更新に使うため checkout は残してください。
-導入後の skill は PATH 上の `romsen` を呼ぶので、エージェントは別の作業ディレクトリから利用できます。
+以下の Git marketplace から導入します。ローカルの checkout は不要です。
+skill は PATH 上の `romsen` を呼ぶので、どの作業ディレクトリからでも利用できます。
+plugin の更新はこのリポジトリの既定ブランチ (`main`) に追従し、Homebrew の CLI のリリースとは独立しています。
 
 ### Codex
 
 ```sh
-codex plugin marketplace add .
+codex plugin marketplace add gin0606/romsen
 codex plugin add romsen@romsen
 ```
 
@@ -53,10 +47,17 @@ codex plugin add romsen@romsen
 `~/.codex/config.toml` の `[plugins."romsen@romsen"]` で `enabled = true` にします。
 `$romsen:slack いま Slack に表示されている内容を読んで` と呼び出します。
 
+Codex CLI 0.160.0 では、セッション開始時に Git marketplace と導入済み plugin が裏で更新され、
+新しい skill は次のセッションで利用できます。この自動更新は同バージョンでの確認結果であり、
+すべての Codex ホスト・バージョンで保証された挙動としては文書化されていません。
+
 ### Claude Code
 
+以前ローカルの checkout から `romsen` を登録していた場合は、先に
+`claude plugin marketplace remove romsen --scope user` で登録を削除してから、Git から導入します。
+
 ```sh
-claude plugin marketplace add "$(pwd)"
+claude plugin marketplace add gin0606/romsen
 claude plugin install romsen@romsen --scope user
 claude plugin list
 ```
@@ -65,9 +66,37 @@ claude plugin list
 新しいセッションで `/romsen:slack いま Slack に表示されている内容を読んで` と呼び出します。
 `claude plugin details romsen` で共通の `slack` skill を確認できます。
 
+`/plugin` の **Marketplaces** で **romsen** を選び、**Enable auto-update** を有効にします。
+第三者の marketplace は既定で自動更新が無効です。対話セッションで最初のメッセージを送ってから、
+最大 10 分の遅延後に裏で更新されます。更新後の skill は次のセッションで使うか、
+更新の完了後に `/reload-plugins` で読み込みます。
+[Claude Code の読み込み仕様](https://code.claude.com/docs/en/plugins/loading#when-auto-update-runs)を参照してください。
+
 ### ローカルの変更を検証する
 
+このリポジトリを clone し、ルートディレクトリで次を実行します。
+ローカル marketplace は skill の開発用で、GitHub から変更を取得しません。
+
+```sh
+codex plugin marketplace add .
+codex plugin add romsen@romsen
+claude plugin marketplace add "$(pwd)"
+claude plugin install romsen@romsen --scope user
+```
+
+`romsen` を Git marketplace として登録済みの場合は、分離したホスト設定を使ってください。
 `plugins/romsen/` の両ホスト用 manifest は、同じ `skills/slack/SKILL.md` を読み込みます。
+Git 管理下の plugin ファイルを変更したら、commit 前に両ホストの version を再生成します。
+新規の plugin ファイルは先に stage してください。Python 3 と Git が必要です。
+
+```sh
+scripts/plugin-version
+scripts/plugin-version --check
+```
+
+両 manifest は同じ `0.1.0+plugin.<hash>` という version を使います。
+hash は `plugins/romsen/` 内の Git 管理下のファイルのパスと内容から計算し、
+両 manifest の生成する `version` フィールドを除外します。CI はどちらかの値が古ければ失敗します。
 Claude Code の plugin と marketplace は次のコマンドで検証できます。
 
 ```sh

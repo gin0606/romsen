@@ -1,10 +1,10 @@
 {
   "name": "romsen",
-  "version": "0.1.0",
   "description": "Read the conversation open in Slack with the romsen CLI.",
   "author": {
     "name": "gin0606"
   },
   "repository": "https://github.com/gin0606/romsen",
-  "license": "MIT"
+  "license": "MIT",
+  "version": "0.1.0+plugin.6e89a07a1a3d6158"
 }

@@ -28,6 +28,9 @@ jobs:
           # Pull request code is built and run here, so no token is left behind.
           persist-credentials: false
 
+      - name: Check the plugin versions
+        run: scripts/plugin-version --check
+
       # Lets a failure caused by a runner image change be diagnosed from the log alone.
       - name: Show the toolchain
         run: |
