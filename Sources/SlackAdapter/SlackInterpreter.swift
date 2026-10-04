@@ -208,10 +208,13 @@ package enum SlackInterpreter {
         for window in windows {
             guard let list = window.first(where: isMessageList) else { continue }
             for row in list.children {
-                guard let id = row.domID, id.hasPrefix(rowIDPrefix),
-                    let suffix = id.split(separator: ".").last, suffix.first?.isLetter == true
+                guard let id = row.domID, id.hasPrefix(rowIDPrefix) else { continue }
+                let parts = id.dropFirst(rowIDPrefix.count).split(separator: ".", omittingEmptySubsequences: false)
+                guard parts.count == 2, !parts[0].isEmpty,
+                    parts[0].utf8.allSatisfy({ (48...57).contains($0) }),
+                    parts[1].first?.isLetter == true
                 else { continue }
-                return String(suffix)
+                return String(parts[1])
             }
         }
         return nil

@@ -462,20 +462,18 @@ func limitsAListOfWrappedUnknownRows(listRole: String) throws {
 }
 
 @Test func readsLinksOnRecognisedScreensTheSameLiveAndSaved() throws {
-    func thread(separator: String) -> Node {
-        diagnosticView([
-            diagnosticRow(0, prefix: "message-list_Thread_"), Node(role: "AXGroup", domID: separator),
-            diagnosticRow(2, prefix: "message-list_Thread_"), diagnosticRow(3, prefix: "message-list_Thread_")
-        ], thread: true)
-    }
+    let thread = diagnosticView([
+        diagnosticRow(0, prefix: "message-list_Thread_"),
+        Node(role: "AXGroup", domID: "message-list_Thread_separator"),
+        diagnosticRow(2, prefix: "message-list_Thread_"), diagnosticRow(3, prefix: "message-list_Thread_")
+    ], thread: true)
     let conversation = diagnosticWindow([diagnosticView([diagnosticRow(0), diagnosticRow(1)]),
-                                         thread(separator: "message-list_Thread_separator")])
+                                         thread])
     var result = diagnosticRow(4)
     result.domID = "search-result"
     result.domClasses = []
     let search = Node(role: "AXGroup", domClasses: ["p-view_contents", "p-view_contents--sidebar"], children: [result])
-    // Without a conversation list the thread list is checked for a channel, so its separator must not look like one.
-    let beside = diagnosticWindow([search, thread(separator: "message-list_Thread_1700000000.000100_separator")])
+    let beside = diagnosticWindow([search, thread])
     let link = "https://example.slack.com/archives/C123/p"
     let reply = link + "1700000002000100?thread_ts=1700000000.000100"
     let cases: [([Node], [String], [String], [String])] = [

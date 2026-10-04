@@ -151,6 +151,20 @@ private func plain(id: String, _ body: String) -> Node {
     #expect(SlackInterpreter.openChannelID([window(views: [])]) == nil)
 }
 
+@Test(arguments: [
+    "message-list_Thread_separator", "message-list_Thread_input",
+    "message-list_Thread_1700000000.000100_separator",
+    "message-list_1700000000.000100", "message-list_.C123",
+    "message-list_1700000000000.", "message-list_1700000000000..C123",
+    "message-list_1700000000000.C123.extra", "message-list_invalid.C123",
+    "message-list_1700000000000x.C123", "other-list_1700000000000.C123"
+])
+func ignoresRowsThatAreNotDateDividersWhenReadingTheConversationID(id: String) {
+    let row = Node(role: "AXGroup", domID: id)
+    let list = Node(role: "AXList", children: [row, plain(id: "message-list_1700000000.000100", "hello")])
+    #expect(SlackInterpreter.openChannelID([window(views: [list])]) == nil)
+}
+
 @Test func parsesMessageLinks() {
     let link = SlackLink("https://acme.slack.com/archives/C0123ABC/p1700000000000100?thread_ts=1699999999.000000&cid=C0123ABC")
 

@@ -109,6 +109,28 @@ func plansLinkedReadsAfterOpeningTheirThreadWhenNeeded(thread: Bool, replyLink: 
 }
 
 @Test(arguments: [false, true])
+func acceptsLinkedThreadsWithoutAConversationList(replyLink: Bool) throws {
+    var windows = readScreen(conversation: false)
+    windows[0].children[0].children[0].children.insert(
+        Node(role: "AXGroup", domID: "message-list_Thread_separator"), at: 1)
+    windows[0].children[0].children[0].children.append(
+        Node(role: "AXGroup", domID: "message-list_Thread_input"))
+    let link = replyLink
+        ? "https://example.slack.com/archives/C123/p1700000002000100?thread_ts=1700000000.000100"
+        : readLink
+    let options = try SlackRead.Options(link: link, thread: !replyLink)
+    #expect(SlackInterpreter.openChannelID(windows) == nil)
+    guard case let .openThread(root, request) = try SlackRead.prepare(options, in: windows) else {
+        Issue.record("A linked thread must remain readable without a conversation list")
+        return
+    }
+    #expect(root == "1700000000.000100")
+    #expect(request.pane == .thread)
+    #expect(SlackRead.openingThread(root: root, in: windows, source: .saved).alreadyOpen)
+    #expect(try SlackRead.output(options, request: request, in: windows).only == .thread)
+}
+
+@Test(arguments: [false, true])
 func allowsAConfirmedThreadOrAnUnconfirmedExistingThread(opened: Bool) throws {
     try SlackRead.afterOpeningThread(root: "1700000000.000100", opened: opened,
                                     in: opened ? [] : readScreen(conversation: false))
