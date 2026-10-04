@@ -65,9 +65,9 @@ package enum SlackRenderer {
             let sender = message.sender ?? lastSender ?? message.labelledSender ?? "?"
             lastSender = sender
             let time = message.sentDate.map(formatter.string(from:)) ?? message.timeLabel ?? "?"
-            let body = tidy(body(message.body)).replacingOccurrences(of: "\n", with: "\n  ")
+            let body = body(message.body).replacingOccurrences(of: "\n", with: "\n  ")
             let marker = focus?.matches(message) == true ? ">> " : ""
-            let header = tidy(Self.body(message.location)).replacingOccurrences(of: "\n", with: " ")
+            let header = Self.body(message.location).replacingOccurrences(of: "\n", with: " ")
             let location = header.isEmpty ? "" : " (\(header))"
             lines.append("\(marker)[\(time)] \(sender)\(location): \(body)")
             if !message.reactions.isEmpty {
@@ -83,23 +83,56 @@ package enum SlackRenderer {
         blocks.map { block in
             switch block {
             case .paragraph(let inline):
-                return inline.map { piece in
-                    switch piece {
-                    case .text(let text): return text
-                    case .button(let title), .threadOrigin(let title): return "[\(title)]"
-                    }
-                }.joined()
+                return paragraph(inline)
             case .quote(let quoted):
-                return tidy(body(quoted)).split(separator: "\n").map { "> \($0)" }.joined(separator: "\n")
+                return body(quoted).components(separatedBy: "\n").map { "> \($0)" }.joined(separator: "\n")
             case .file(let name): return "[file: \(name)]"
             }
         }.joined(separator: "\n")
     }
 
-    private static func tidy(_ body: String) -> String {
-        body.split(separator: "\n")
-            .map { $0.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ") }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+    private static func paragraph(_ pieces: [SlackMessage.Inline]) -> String {
+        var output = ""
+        var space = false
+        func prose(_ text: String) {
+            for character in text {
+                if character == " " {
+                    space = !output.isEmpty && output.last != "\n"
+                } else if character == "\n" {
+                    space = false
+                    if !output.isEmpty && output.last != "\n" { output.append(character) }
+                } else {
+                    if space { output.append(" "); space = false }
+                    output.append(character)
+                }
+            }
+        }
+        for piece in pieces {
+            switch piece {
+            case .text(let text): prose(text)
+            case .button(let title), .threadOrigin(let title): prose("[\(title)]")
+            case .code(let text):
+                if space { output.append(" "); space = false }
+                output += code(text)
+            }
+        }
+        while output.last == "\n" { output.removeLast() }
+        return output
+    }
+
+    private static func code(_ text: String) -> String {
+        var longest = 0, run = 0
+        for character in text {
+            run = character == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        if text.contains("\n") {
+            let fence = String(repeating: "`", count: max(3, longest + 1))
+            return "\(fence)\n\(text)\n\(fence)"
+        }
+        let fence = String(repeating: "`", count: longest + 1)
+        let edgeSpace = (text.first == " " || text.last == " ") && !text.allSatisfy { $0 == " " }
+        let padding = text.first == "`" || text.last == "`" || edgeSpace ? " " : ""
+        return "\(fence)\(padding)\(text)\(padding)\(fence)"
     }
 }

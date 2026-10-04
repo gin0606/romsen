@@ -434,3 +434,39 @@ private func render(
           second
         """)
 }
+
+@Test func preservesCodeAsSemanticContentAndRendersItsWhitespaceAndBackticks() throws {
+    let source = "a  b`c"
+    let code = Node(role: "AXGroup", domClasses: ["c-mrkdwn__code"], children: [text("a"), text("  "), text("b`c")])
+    let row = message(id: "message-list_1700000000.000100", sender: "example", body: [code])
+    let screens = SlackInterpreter.read([Node(role: "AXWindow", children: [
+        Node(role: "AXGroup", domClasses: ["p-view_contents"], children: [row])
+    ])])
+    let parsed = try #require(screens.first?.views.first?.messages.first)
+    #expect(parsed.body == [.paragraph([.code(source)])])
+    #expect(SlackRenderer.render(screens).contains(": ``a  b`c``"))
+}
+
+@Test func preservesCodeInsideQuotesAndKeepsProseNormalisation() {
+    let message = SlackMessage(location: [], body: [
+        .paragraph([.text("  run   "), .code("/run"), .text("   next  ")]),
+        .quote([.paragraph([.code("line  one\n\n  `two`")])]),
+        .paragraph([.code("`edge`"), .text("   "), .code(" leading  ")]),
+        .paragraph([.code("  ")])
+    ], reactions: [])
+    let view = SlackView(kind: .conversation, searchSummary: [], messages: [message], plainText: [])
+    let output = SlackRenderer.render([SlackScreen(views: [view])])
+    #expect(output.contains("run `/run` next"))
+    #expect(output.contains("> line  one\n  > \n  >   `two`"))
+    #expect(output.contains("`` `edge` `` `  leading   `"))
+    #expect(output.hasSuffix("`  `"))
+}
+
+@Test func keepsTheAccessibleLabelOfALeafCodeElement() throws {
+    let code = Node(role: "AXGroup", title: "  label  ", domClasses: ["c-mrkdwn__code"])
+    let row = message(id: "message-list_1700000000.000100", sender: nil, body: [code])
+    let screens = SlackInterpreter.read([Node(role: "AXWindow", children: [
+        Node(role: "AXGroup", domClasses: ["p-view_contents"], children: [row])
+    ])])
+    #expect(try #require(screens.first?.views.first?.messages.first).body == [.paragraph([.code("  label  ")])])
+}

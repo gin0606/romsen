@@ -19,7 +19,7 @@ package struct SlackView: Equatable, Sendable {
 
 package struct SlackMessage: Equatable, Sendable {
     package enum Inline: Equatable, Sendable {
-        case text(String), button(String), threadOrigin(String)
+        case text(String), code(String), button(String), threadOrigin(String)
     }
     package indirect enum Block: Equatable, Sendable {
         case paragraph([Inline]), quote([Block]), file(String)
@@ -361,7 +361,10 @@ package enum SlackInterpreter {
                 body = "\n"
                 previous = nil
             } else if node.hasClass("c-mrkdwn__code") {
-                append("`\(SlackInterpreter.plainText(node).joined())`", from: node)
+                body += separator(before: node)
+                flushText()
+                inline.append(.code(codeText(node)))
+                previous = node
             } else if node.role == "AXStaticText" {
                 let value = node.value ?? ""
                 if value.allSatisfy(\.isWhitespace) {
@@ -383,6 +386,12 @@ package enum SlackInterpreter {
                 if node.hasClass("p-rich_text_section") { paragraphRightEdge = node.frame?.maxX }
                 for child in node.children { read(child) }
             }
+        }
+
+        private func codeText(_ node: Node) -> String {
+            if node.role == "AXStaticText" { return node.value ?? "" }
+            if node.children.isEmpty { return node.title ?? node.description ?? "" }
+            return node.children.map(codeText).joined()
         }
 
         private mutating func append(_ text: String, from node: Node) {
